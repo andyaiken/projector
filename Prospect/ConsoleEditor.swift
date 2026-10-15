@@ -15,9 +15,6 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
     private(set) var cue: Cue?
 
     private let heading = Desk.label("", font: Desk.sans(12.5, .semibold), colour: Desk.text)
-    private let moveUp = CueEditorPanel.button("Move Up")
-    private let moveDown = CueEditorPanel.button("Move Down")
-    private let delete = CueEditorPanel.button("Delete")
     private let empty = Desk.label("Nothing is standing by. Add a cue with Add Cue at the top, or click one in the list to edit it.",
                                    font: Desk.sans(12.5), colour: Desk.dim, wraps: true)
 
@@ -54,9 +51,7 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         // every kind of cue.
         let order = [text, sub, key, number, line, continueSeconds]
         for (field, next) in zip(order, order.dropFirst() + [order[0]]) { field.nextKeyView = next }
-        for (button, action) in [(moveUp, #selector(moveUpPressed)), (moveDown, #selector(moveDownPressed)),
-                                 (delete, #selector(deletePressed)), (choose, #selector(choosePressed)),
-                                 (removeMedia, #selector(removePressed))] {
+        for (button, action) in [(choose, #selector(choosePressed)), (removeMedia, #selector(removePressed))] {
             button.target = self
             button.action = action
         }
@@ -78,7 +73,7 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
             guard let self, let cue else { return }
             importMedia(url, cue.id)
         }
-        let views: [NSView] = [heading, moveUp, moveDown, delete, empty, numberLabel, number, lineLabel, line,
+        let views: [NSView] = [heading, empty, numberLabel, number, lineLabel, line,
                                continueLabel, continueMode, continueSeconds, secondsLabel,
                                textLabel, text, subLabel, sub, keyLabel, key, mediaLabel, well, choose, removeMedia,
                                atEndLabel, atEnd, colourLabel, colour]
@@ -125,7 +120,7 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         self.cue = cue
         let kind = cue?.kind
         empty.isHidden = cue != nil
-        for view in [moveUp, moveDown, delete, numberLabel, number, lineLabel, line, continueLabel, continueMode, textLabel, text] as [NSView] {
+        for view in [numberLabel, number, lineLabel, line, continueLabel, continueMode, textLabel, text] as [NSView] {
             view.isHidden = cue == nil
         }
         subLabel.isHidden = kind == nil || kind == .blank || kind == .image
@@ -277,9 +272,6 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         }
     }
 
-    @objc private func moveUpPressed() { if let cue { controller?.moveCue(cue.id, by: -1) } }
-    @objc private func moveDownPressed() { if let cue { controller?.moveCue(cue.id, by: 1) } }
-    @objc private func deletePressed() { if let cue { controller?.deleteCue(cue.id) } }
     @objc private func choosePressed() { if let cue { chooseMedia(cue.id) } }
 
     /// Leaves the file in the show, where an undo expects it.
@@ -318,13 +310,7 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         super.layout()
         let x: CGFloat = 16, inner = bounds.width - 32, labelWidth: CGFloat = 76
         var y: CGFloat = 15
-        heading.frame = NSRect(x: x, y: y + 3, width: inner * 0.45, height: 18)
-        var right = x + inner
-        for button in [delete, moveDown, moveUp] {
-            let w = button.fittingSize.width
-            button.frame = NSRect(x: right - w, y: y, width: w, height: 24)
-            right -= w + 6
-        }
+        heading.frame = NSRect(x: x, y: y + 3, width: inner, height: 18)
         y += 36
         empty.frame = NSRect(x: x, y: y, width: inner, height: 40)
 

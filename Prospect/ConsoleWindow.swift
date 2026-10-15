@@ -96,6 +96,8 @@ final class ConsoleWindowController: NSWindowController, NSWindowDelegate, NSTex
         header.addCue.action = #selector(addCueChosen)
         cueList.onClick = { [weak controller] id in controller?.standBy(id) }
         cueList.onDrop = { [weak self] url, id in self?.importMedia(url, id) }
+        cueList.onDelete = { [weak controller] id in controller?.deleteCue(id) }
+        cueList.onMove = { [weak controller] id, offset in controller?.moveCue(id, by: offset) }
         editor.controller = controller
         editor.importMedia = { [weak self] url, id in self?.importMedia(url, id) }
         editor.chooseMedia = { [weak self] id in self?.chooseMedia(id) }

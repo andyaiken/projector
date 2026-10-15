@@ -228,6 +228,11 @@ enum DocumentCheck {
         }
         check(controller.show.cues.map(\.number) == ["1", "2"], "added cues are numbered 1 and 2")
 
+        // A row dragged by its grip lands where it's dropped; dropped next to
+        // itself, it doesn't move.
+        let landings = [(0, 0), (0, 1), (0, 2), (0, 3), (2, 0), (2, 3), (3, 1)].map { CueListView.offset(moving: $0, toSlot: $1) }
+        check(landings == [0, 0, 1, 2, -2, 0, -2], "dragging a cue moves it by \(landings)")
+
         // Tab runs down what the cue shows, then where it comes in the book,
         // skipping what this kind of cue doesn't have.
         if let console = document.console {

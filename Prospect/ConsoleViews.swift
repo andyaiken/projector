@@ -340,9 +340,22 @@ final class CueRowView: NSView {
     /// In edit mode, a picture or clip dropped on an image or video row goes
     /// to that cue.
     var acceptsMedia = false
+    /// Edit mode: a delete button and a grip to drag the row by, at the right.
+    var isEditing = false {
+        didSet {
+            guard isEditing != oldValue else { return }
+            needsDisplay = true
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+    /// Dimmed while it's being dragged to a new place.
+    var isLifted = false { didSet { alphaValue = isLifted ? 0.45 : 1 } }
     private var targeted = false { didSet { needsDisplay = true } }
     var onClick: (UUID) -> Void = { _ in }
     var onDrop: (URL, UUID) -> Void = { _, _ in }
+    var onDelete: (UUID) -> Void = { _ in }
+    /// The grip was pressed: the list takes the drag from here.
+    var onGrip: (CueRowView, NSEvent) -> Void = { _, _ in }
 
     init(cue: Cue, transitionNote: String? = nil) {
         self.cue = cue
@@ -397,6 +410,28 @@ final class CueRowView: NSView {
 
     private static let noteHeight: CGFloat = 14
 
+    /// Where the cue's name sits, below any transition note.
+    private var firstLineY: CGFloat { 8 + (transitionNote == nil ? 0 : Self.noteHeight) }
+    /// The whole height of the row's right edge, so it's easy to take hold of.
+    var gripRect: NSRect { NSRect(x: bounds.width - 26, y: 0, width: 26, height: bounds.height) }
+    var deleteRect: NSRect { NSRect(x: bounds.width - 48, y: firstLineY - 3, width: 22, height: 22) }
+    /// The room the edit-mode controls take at the right.
+    private var controlsWidth: CGFloat { isEditing ? 48 : 0 }
+
+    /// A system symbol, drawn the right way up in this top-down view.
+    private func drawSymbol(_ name: String, _ colour: NSColor, centredIn rect: NSRect, size: CGFloat = 11) {
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [colour]))) else { return }
+        let s = image.size
+        image.draw(in: NSRect(x: rect.midX - s.width / 2, y: rect.midY - s.height / 2, width: s.width, height: s.height),
+                   from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+
+    override func resetCursorRects() {
+        if isEditing { addCursorRect(gripRect, cursor: .openHand) }
+    }
+
     var preferredHeight: CGFloat {
         16 + 18 + (subtitle.isEmpty ? 0 : 17) + (cue.line.isEmpty ? 0 : 17) + (transitionNote == nil ? 0 : Self.noteHeight)
     }
@@ -437,19 +472,19 @@ final class CueRowView: NSView {
         }
         draw(cue.number, Desk.mono(12), isStandby ? Desk.brass : Desk.dim, x: 8, y: y + 1, width: 40, align: .right)
         draw(Self.kindGlyph(cue.kind), Desk.mono(11), Desk.dim, x: 56, y: y + 1, width: 14)
-        // Marks at the right: how the cue continues, then any problem.
+        // At the right: in edit mode the grip and delete; then how the cue
+        // continues, then any problem.
+        if isEditing {
+            drawSymbol("line.3.horizontal", Desk.dim, centredIn: gripRect)
+            drawSymbol("trash", Desk.dim, centredIn: deleteRect, size: 10.5)
+        }
         let symbol = Self.continueSymbol(cue.continueMode)
         let marks = CGFloat((symbol == nil ? 0 : 1) + (hasIssue ? 1 : 0))
-        let textX: CGFloat = 78, textWidth = bounds.width - textX - 10 - marks * 18
+        let textX: CGFloat = 78, textWidth = bounds.width - textX - 10 - marks * 18 - controlsWidth
         draw(cue.text.isEmpty ? "\u{2014}" : cue.text, Desk.mono(13), Desk.text, x: textX, y: y, width: textWidth, kern: 0.65)
-        var markX = bounds.width - 22
-        if let symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-                .applying(NSImage.SymbolConfiguration(paletteColors: [isStandby ? Desk.brass : Desk.dim]))) {
-            let size = image.size
-            // The row draws top down; the symbol must stay the right way up.
-            image.draw(in: NSRect(x: markX + (14 - size.width) / 2, y: y + 1 + (16 - size.height) / 2, width: size.width, height: size.height),
-                       from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        var markX = bounds.width - 22 - controlsWidth
+        if let symbol {
+            drawSymbol(symbol, isStandby ? Desk.brass : Desk.dim, centredIn: NSRect(x: markX, y: y + 1, width: 14, height: 16))
             markX -= 18
         }
         if hasIssue {
@@ -467,6 +502,15 @@ final class CueRowView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if isEditing, deleteRect.contains(point) {
+            onDelete(cue.id)
+            return
+        }
+        if isEditing, gripRect.contains(point) {
+            onGrip(self, event)
+            return
+        }
         onClick(cue.id)
     }
 
@@ -501,6 +545,11 @@ final class CueListView: NSScrollView {
     private var shownNotes: [String?] = []
     var onClick: (UUID) -> Void = { _ in }
     var onDrop: (URL, UUID) -> Void = { _, _ in }
+    var onDelete: (UUID) -> Void = { _ in }
+    /// A row dragged to a new place: the cue, and how far it moved.
+    var onMove: (UUID, Int) -> Void = { _, _ in }
+    /// Where a dragged row will land.
+    private let insertion = PanelView(fill: Desk.brass)
 
     init() {
         super.init(frame: .zero)
@@ -508,6 +557,8 @@ final class CueListView: NSScrollView {
         hasVerticalScroller = true
         autohidesScrollers = true
         documentView = document
+        insertion.isHidden = true
+        document.addSubview(insertion)
     }
 
     required init?(coder: NSCoder) {
@@ -522,7 +573,9 @@ final class CueListView: NSScrollView {
                 let row = CueRowView(cue: cue, transitionNote: note)
                 row.onClick = { [weak self] in self?.onClick($0) }
                 row.onDrop = { [weak self] url, id in self?.onDrop(url, id) }
-                document.addSubview(row)
+                row.onDelete = { [weak self] in self?.onDelete($0) }
+                row.onGrip = { [weak self] row, event in self?.drag(row, from: event) }
+                document.addSubview(row, positioned: .below, relativeTo: insertion)
                 return row
             }
             shown = cues
@@ -534,6 +587,7 @@ final class CueListView: NSScrollView {
             row.isLive = row.cue.id == live
             row.hasIssue = issues.contains(row.cue.id)
             row.acceptsMedia = editing
+            row.isEditing = editing
         }
         layoutRows()
         // Keep the standby row in view, and the live row with it if both fit.
@@ -549,6 +603,52 @@ final class CueListView: NSScrollView {
     override func layout() {
         super.layout()
         layoutRows()
+    }
+
+    // MARK: Reordering
+
+    /// Follows the pointer from a row's grip until the button comes up,
+    /// showing where the row will land, then moves the cue there.
+    private func drag(_ row: CueRowView, from event: NSEvent) {
+        guard let window, let from = rows.firstIndex(where: { $0 === row }) else { return }
+        row.isLifted = true
+        NSCursor.closedHand.push()
+        var landed: Int?
+        window.trackEvents(matching: [.leftMouseDragged, .leftMouseUp], timeout: NSEvent.foreverDuration, mode: .eventTracking) { event, stop in
+            guard let event, event.type == .leftMouseDragged else {
+                stop.pointee = true
+                return
+            }
+            document.autoscroll(with: event)
+            let landing = slot(at: document.convert(event.locationInWindow, from: nil).y)
+            landed = landing
+            showInsertion(at: landing)
+        }
+        NSCursor.pop()
+        row.isLifted = false
+        insertion.isHidden = true
+        guard let landed else { return }
+        let offset = Self.offset(moving: from, toSlot: landed)
+        if offset != 0 { onMove(row.cue.id, offset) }
+    }
+
+    /// Where a dragged row would go: before the first row whose middle is
+    /// below the pointer, or at the end.
+    private func slot(at y: CGFloat) -> Int {
+        rows.firstIndex { y < $0.frame.midY } ?? rows.count
+    }
+
+    /// How far a cue moves to land in a slot, the slots counted before it
+    /// is lifted out: dropping it just above or below itself moves it
+    /// nowhere.
+    static func offset(moving from: Int, toSlot slot: Int) -> Int {
+        slot > from ? slot - from - 1 : slot - from
+    }
+
+    private func showInsertion(at slot: Int) {
+        let y = slot < rows.count ? rows[slot].frame.minY - 2.5 : (rows.last.map { $0.frame.maxY + 0.5 } ?? 0)
+        insertion.frame = NSRect(x: 6, y: y, width: document.bounds.width - 12, height: 2)
+        insertion.isHidden = false
     }
 
     private func layoutRows() {
