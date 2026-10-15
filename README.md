@@ -2,20 +2,6 @@
 
 Prospect is a native macOS app for running projections in live theatre. Text decrypts out of ciphertext, scene images turn into place tile by tile, and video clips play. An operator fires cues from a console on the Mac's own display while the projector window runs full-screen on a second display.
 
-[spec.md](spec.md) is the source of truth for behaviour and for every decision taken so far. This README covers building, testing and finding your way around the code.
-
-## Status
-
-All seven phases of the build are done, along with show defaults, per-cue overrides and Preferences. Everything that can be checked without a person at the keyboard has been: unit tests, offscreen renders, printed PDFs read back, and a scripted Save and reopen round trip.
-
-These have not been checked yet:
-
-- a real projector and a second display, including unplugging and replugging it during a show
-- interactive flows: the recovery panel for a damaged show, resuming after a crash, and dragging media onto cues
-- ProRes clips, and clips with audio
-
-Book projector time early. The spec explains why under Build and distribution.
-
 ## Requirements
 
 - Xcode 27 with Swift 6.4. The code builds under strict concurrency with no warnings, and should stay that way.
