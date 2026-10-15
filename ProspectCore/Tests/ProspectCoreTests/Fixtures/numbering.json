@@ -1,0 +1,19 @@
+{
+  "lookup": {
+    "numbers": ["1","2"," 9.5 ","P12","p13","10","1","4.50"],
+    "cases": [
+      {"query":"1","index":0},
+      {"query":"2","index":1},
+      {"query":"9.5","index":2},
+      {"query":" 9.5","index":2},
+      {"query":"P12","index":3},
+      {"query":"p12","index":3},
+      {"query":"P13","index":4},
+      {"query":" 10 ","index":5},
+      {"query":"11","index":-1},
+      {"query":"","index":-1},
+      {"query":"4.5","index":-1},
+      {"query":"4.50","index":7}
+    ]
+  }
+}

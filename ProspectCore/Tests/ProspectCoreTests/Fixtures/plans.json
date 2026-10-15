@@ -1,0 +1,114 @@
+{
+  "plans": [
+    {
+      "text": "THE LOUVRE",
+      "key": "VITRUVIAN",
+      "stagger": 3,
+      "seed": 101,
+      "plan": {
+        "chars": [
+          {"p":"T","c":"]","moves":true,"steps":21,"pad":0,"start":2},
+          {"p":"H","c":"P","moves":true,"steps":8,"pad":8,"start":6},
+          {"p":"E","c":"X","moves":true,"steps":19,"pad":0,"start":14},
+          {"p":" ","c":"Q","moves":true,"steps":17,"pad":0,"start":12},
+          {"p":"L","c":"5","moves":true,"steps":20,"pad":0,"start":18},
+          {"p":"O","c":"9","moves":true,"steps":21,"pad":0,"start":16},
+          {"p":"U","c":"2","moves":true,"steps":8,"pad":8,"start":25},
+          {"p":"V","c":"V","moves":true,"steps":0,"pad":16,"start":22},
+          {"p":"R","c":"4","moves":true,"steps":13,"pad":3,"start":31},
+          {"p":"E","c":"Z","moves":true,"steps":21,"pad":0,"start":30}
+        ],
+        "duration": 51,
+        "keyLen": 9
+      }
+    },
+    {
+      "text": "Newton's tomb",
+      "key": "SOPHIE",
+      "stagger": 0,
+      "seed": 102,
+      "plan": {
+        "chars": [
+          {"p":"N","c":"5","moves":true,"steps":18,"pad":0,"start":2},
+          {"p":"E","c":"S","moves":true,"steps":14,"pad":2,"start":4},
+          {"p":"W","c":"!","moves":true,"steps":15,"pad":1,"start":5},
+          {"p":"T","c":"0","moves":true,"steps":7,"pad":9,"start":3},
+          {"p":"O","c":"W","moves":true,"steps":8,"pad":8,"start":3},
+          {"p":"N","c":"R","moves":true,"steps":4,"pad":12,"start":7},
+          {"p":"'","c":"'","moves":false,"steps":0,"pad":0,"start":2},
+          {"p":"S","c":"/","moves":true,"steps":18,"pad":0,"start":0},
+          {"p":" ","c":"N","moves":true,"steps":14,"pad":2,"start":3},
+          {"p":"T","c":"8","moves":true,"steps":15,"pad":1,"start":3},
+          {"p":"O","c":"V","moves":true,"steps":7,"pad":9,"start":0},
+          {"p":"M","c":"U","moves":true,"steps":8,"pad":8,"start":5},
+          {"p":"B","c":"F","moves":true,"steps":4,"pad":12,"start":2}
+        ],
+        "duration": 23,
+        "keyLen": 6
+      }
+    },
+    {
+      "text": "",
+      "key": "SOPHIE",
+      "stagger": 3,
+      "seed": 103,
+      "plan": {
+        "chars": [],
+        "duration": 0,
+        "keyLen": 6
+      }
+    },
+    {
+      "text": "   ",
+      "key": "",
+      "stagger": 10,
+      "seed": 104,
+      "plan": {
+        "chars": [
+          {"p":" ","c":" ","moves":true,"steps":0,"pad":16,"start":2},
+          {"p":" ","c":" ","moves":true,"steps":0,"pad":16,"start":16},
+          {"p":" ","c":" ","moves":true,"steps":0,"pad":16,"start":20}
+        ],
+        "duration": 36,
+        "keyLen": 0
+      }
+    },
+    {
+      "text": "ÉÉ",
+      "key": "ROSELINE",
+      "stagger": 2,
+      "seed": 105,
+      "plan": {
+        "chars": [
+          {"p":"É","c":"É","moves":false,"steps":0,"pad":0,"start":2},
+          {"p":"É","c":"É","moves":false,"steps":0,"pad":0,"start":9}
+        ],
+        "duration": 0,
+        "keyLen": 8
+      }
+    },
+    {
+      "text": "ROOM 101/B?",
+      "key": "z",
+      "stagger": 1,
+      "seed": 106,
+      "plan": {
+        "chars": [
+          {"p":"R","c":".","moves":true,"steps":25,"pad":0,"start":2},
+          {"p":"O","c":"[","moves":true,"steps":25,"pad":0,"start":9},
+          {"p":"O","c":"[","moves":true,"steps":25,"pad":0,"start":5},
+          {"p":"M","c":"!","moves":true,"steps":25,"pad":0,"start":8},
+          {"p":" ","c":"Y","moves":true,"steps":25,"pad":0,"start":4},
+          {"p":"1","c":"H","moves":true,"steps":25,"pad":0,"start":12},
+          {"p":"0","c":"G","moves":true,"steps":25,"pad":0,"start":6},
+          {"p":"1","c":"H","moves":true,"steps":25,"pad":0,"start":13},
+          {"p":"/","c":"Q","moves":true,"steps":25,"pad":0,"start":11},
+          {"p":"B","c":"0","moves":true,"steps":25,"pad":0,"start":15},
+          {"p":"?","c":"S","moves":true,"steps":25,"pad":0,"start":18}
+        ],
+        "duration": 43,
+        "keyLen": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+.DS_Store
+
+# Swift Package Manager and Xcode build output
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+
+# Packaged builds, from tools/package.sh
+dist/

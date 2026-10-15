@@ -1,0 +1,746 @@
+import AppKit
+import ProspectCore
+import ProspectStage
+
+/// The desk palette, for everything around the stage.
+enum Desk {
+    static let colour = rgb(0x14, 0x16, 0x1B)
+    static let raised = rgb(0x1B, 0x1E, 0x25)
+    static let sunk = rgb(0x0C, 0x0E, 0x12)
+    static let line = rgb(0x27, 0x2C, 0x35)
+    static let lineBright = rgb(0x3A, 0x41, 0x4E)
+    static let text = rgb(0xCF, 0xD4, 0xDE)
+    static let dim = rgb(0x76, 0x7E, 0x8D)
+    static let brass = rgb(0xC8, 0xA2, 0x4A)
+    static let live = rgb(0x6F, 0xB5, 0x8A)
+
+    static func rgb(_ r: Int, _ g: Int, _ b: Int) -> NSColor {
+        NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
+    }
+
+    static func mono(_ size: CGFloat, _ weight: NSFont.Weight = .regular) -> NSFont {
+        NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
+    static func sans(_ size: CGFloat, _ weight: NSFont.Weight = .regular) -> NSFont {
+        NSFont.systemFont(ofSize: size, weight: weight)
+    }
+
+    @MainActor
+    static func label(_ text: String = "", font: NSFont = sans(12.5), colour: NSColor = Desk.text, wraps: Bool = false) -> NSTextField {
+        let field = wraps ? NSTextField(wrappingLabelWithString: text) : NSTextField(labelWithString: text)
+        field.font = font
+        field.textColor = colour
+        field.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
+        return field
+    }
+
+    /// The height a label needs at a width.
+    @MainActor
+    static func height(of field: NSTextField, width: CGFloat) -> CGFloat {
+        guard !field.stringValue.isEmpty else { return 0 }
+        return ceil(field.cell!.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height)
+    }
+}
+
+/// A plain view with a fill, and optionally a border.
+class PanelView: NSView {
+    init(fill: NSColor? = nil, border: NSColor? = nil, radius: CGFloat = 0) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = fill?.cgColor
+        layer?.borderColor = border?.cgColor
+        layer?.borderWidth = border == nil ? 0 : 1
+        layer?.cornerRadius = radius
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+}
+
+// MARK: - Header
+
+/// GO. Brass, and the biggest thing in the window. It never takes keyboard
+/// focus, so Space can't press it as well as firing through the show keys.
+final class GoButton: NSButton {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        isBordered = false
+        title = "GO"
+        refusesFirstResponder = true
+        focusRingType = .none
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+        if isEnabled {
+            (isHighlighted ? Desk.rgb(0xD6, 0xB0, 0x58) : Desk.brass).setFill()
+            path.fill()
+        } else {
+            Desk.line.setStroke()
+            path.stroke()
+        }
+        let text = NSAttributedString(string: "GO", attributes: [
+            .font: Desk.sans(14, .semibold),
+            .foregroundColor: isEnabled ? Desk.rgb(0x15, 0x12, 0x0B) : Desk.dim,
+            .kern: 2.2,
+        ])
+        let size = text.size()
+        text.draw(at: NSPoint(x: (bounds.width - size.width) / 2 + 1.1, y: (bounds.height - size.height) / 2))
+    }
+}
+
+/// Show or edit: two segments in the desk's own colours, with Edit in brass
+/// when it's on, so an unlocked sheet is plain at a glance. Clicked, never
+/// keyed: it doesn't take the keyboard, so Space can't flip it.
+final class ModeSwitch: NSControl {
+    var isEditing = false {
+        didSet { if isEditing != oldValue { needsDisplay = true } }
+    }
+
+    private static let labels = ["SHOW", "EDIT"]
+    private static let font = Desk.sans(10.5, .semibold)
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        refusesFirstResponder = true
+        focusRingType = .none
+        toolTip = "Show mode locks the cue sheet; edit mode unlocks it"
+        setAccessibilityRole(.radioGroup)
+        setAccessibilityLabel("Mode")
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+    override var intrinsicContentSize: NSSize { NSSize(width: 104, height: 22) }
+    override var fittingSize: NSSize { intrinsicContentSize }
+
+    override func mouseDown(with event: NSEvent) {
+        let editing = convert(event.locationInWindow, from: nil).x >= bounds.midX
+        guard editing != isEditing else { return }
+        isEditing = editing
+        sendAction(action, to: target)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let box = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let outline = NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4)
+        Desk.sunk.setFill()
+        outline.fill()
+        Desk.line.setStroke()
+        outline.stroke()
+
+        let half = box.width / 2
+        let selected = NSRect(x: box.minX + (isEditing ? half : 0), y: box.minY, width: half, height: box.height).insetBy(dx: 2, dy: 2)
+        (isEditing ? Desk.brass : Desk.lineBright).setFill()
+        NSBezierPath(roundedRect: selected, xRadius: 3, yRadius: 3).fill()
+
+        for (i, label) in Self.labels.enumerated() {
+            let on = (i == 1) == isEditing
+            let colour = on ? (isEditing ? Desk.rgb(0x15, 0x12, 0x0B) : Desk.text) : Desk.dim
+            let text = NSAttributedString(string: label, attributes: [.font: Self.font, .foregroundColor: colour, .kern: 0.8])
+            let size = text.size()
+            text.draw(at: NSPoint(x: box.minX + CGFloat(i) * half + (half - size.width) / 2 + 0.4, y: (bounds.height - size.height) / 2))
+        }
+    }
+}
+
+final class HeaderView: PanelView {
+    let wordmark = Desk.label("Prospect", font: Desk.mono(14), colour: Desk.text)
+    /// Show or edit, chosen here or from the Show menu. Never by a key: a
+    /// key that unlocked the sheet mid-performance would be a liability.
+    let mode = ModeSwitch(frame: .zero)
+    /// Edit mode only: a new cue of any kind, after the one standing by.
+    let addCue = NSPopUpButton(frame: .zero, pullsDown: true)
+    let lampDot = PanelView(radius: 3.5)
+    let lamp = Desk.label("", font: Desk.sans(12.5), colour: Desk.dim)
+    let openProjector = NSButton(title: "Open Projector", target: nil, action: nil)
+    let separator = PanelView(fill: Desk.line)
+    let go = GoButton(frame: .zero)
+
+    init() {
+        super.init(fill: Desk.raised)
+        wordmark.attributedStringValue = NSAttributedString(string: "Prospect", attributes: [
+            .font: Desk.mono(14), .foregroundColor: Desk.text, .kern: 1.4,
+        ])
+        openProjector.bezelStyle = .rounded
+        openProjector.refusesFirstResponder = true
+        // A pull-down's first item is its title; the kinds follow.
+        addCue.addItems(withTitles: ["Add Cue"] + Cue.Kind.allCases.map(\.heading))
+        addCue.controlSize = .small
+        addCue.font = Desk.sans(11.5)
+        addCue.refusesFirstResponder = true
+        addCue.toolTip = "Adds a cue after the one standing by"
+        for view in [wordmark, mode, addCue, lampDot, lamp, openProjector, separator, go] as [NSView] { addSubview(view) }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(mode editing: Bool, lamp text: String, live: Bool, warn: Bool, projectorOpen: Bool, goEnabled: Bool, goTip: String) {
+        mode.isEditing = editing
+        addCue.isHidden = !editing
+        lamp.stringValue = text
+        lamp.textColor = live ? Desk.live : (warn ? Desk.brass : Desk.dim)
+        lampDot.layer?.backgroundColor = (live ? Desk.live : (warn ? Desk.brass : Desk.lineBright)).cgColor
+        lampDot.layer?.shadowColor = Desk.live.cgColor
+        lampDot.layer?.shadowOpacity = live ? 0.9 : 0
+        lampDot.layer?.shadowRadius = 3.5
+        lampDot.layer?.shadowOffset = .zero
+        openProjector.isHidden = projectorOpen
+        go.isEnabled = goEnabled
+        go.toolTip = goTip
+        go.needsDisplay = true
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        let h = bounds.height
+        func centre(_ v: NSView, x: CGFloat, width: CGFloat? = nil) {
+            let size = v.fittingSize
+            v.frame = NSRect(x: x, y: ((h - size.height) / 2).rounded(), width: width ?? size.width, height: size.height)
+        }
+        centre(wordmark, x: 16)
+        centre(mode, x: wordmark.frame.maxX + 16)
+        if !addCue.isHidden { centre(addCue, x: mode.frame.maxX + 12) }
+
+        go.frame = NSRect(x: bounds.width - 16 - 104, y: (h - 36) / 2, width: 104, height: 36)
+        separator.frame = NSRect(x: go.frame.minX - 15, y: (h - 26) / 2, width: 1, height: 26)
+        var right = separator.frame.minX - 14
+        if !openProjector.isHidden {
+            let width = openProjector.fittingSize.width
+            centre(openProjector, x: right - width)
+            right = openProjector.frame.minX - 14
+        }
+        let lampWidth = lamp.fittingSize.width
+        centre(lamp, x: right - lampWidth)
+        lampDot.frame = NSRect(x: lamp.frame.minX - 14, y: (h - 7) / 2, width: 7, height: 7)
+    }
+}
+
+// MARK: - Standby
+
+/// What GO fires next, large; what is on screen, small.
+final class StandbyPanel: PanelView {
+    private let standingBy = Desk.label("Standing by", font: Desk.sans(11.5), colour: Desk.dim)
+    private let number = Desk.label("\u{2014}", font: Desk.mono(30), colour: Desk.brass)
+    private let name = Desk.label("\u{2014}", font: Desk.mono(13), colour: Desk.text)
+    private let arm = Desk.label("", font: Desk.sans(11.5, .medium), colour: Desk.dim)
+    private let cuePointBox = PanelView(fill: Desk.raised)
+    private let cuePointBar = PanelView(fill: Desk.brass)
+    private let cuePoint = Desk.label("", font: Desk.sans(13), colour: Desk.text, wraps: true)
+    private let divider = PanelView(fill: Desk.line)
+    private let onScreen = Desk.label("On screen", font: Desk.sans(11.5), colour: Desk.dim)
+    private let liveNumber = Desk.label("\u{2014}", font: Desk.mono(17), colour: Desk.dim)
+    private let liveName = Desk.label("\u{2014}", font: Desk.mono(12), colour: Desk.dim)
+
+    init() {
+        super.init(fill: Desk.sunk)
+        name.alignment = .right
+        liveName.alignment = .right
+        cuePointBox.addSubview(cuePointBar)
+        cuePointBox.addSubview(cuePoint)
+        arm.alignment = .right
+        for view in [standingBy, number, name, arm, cuePointBox, divider, onScreen, liveNumber, liveName] as [NSView] { addSubview(view) }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// For a video cue standing by: whether it is armed, said plainly.
+    func update(standby: Cue?, live: Cue?, entry: String, arm armState: ArmState?) {
+        switch armState {
+        case .armed:
+            arm.stringValue = "Video armed"
+            arm.textColor = Desk.live
+        case .arming:
+            arm.stringValue = "Video loading \u{2014} not armed yet"
+            arm.textColor = Desk.brass
+        case .failed:
+            arm.stringValue = "No clip \u{2014} this cue goes to black"
+            arm.textColor = Desk.brass
+        case nil:
+            arm.stringValue = ""
+        }
+        if !entry.isEmpty {
+            standingBy.stringValue = "Go to \u{2014} Return stands it by, Escape clears"
+            number.stringValue = entry + "\u{2581}"
+            name.stringValue = ""
+        } else {
+            standingBy.stringValue = "Standing by"
+            number.stringValue = standby?.number ?? "\u{2014}"
+            name.stringValue = standby.map { $0.text.isEmpty ? "\u{2014}" : $0.text } ?? "end of sheet"
+        }
+        let line = standby?.line.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        cuePoint.stringValue = !line.isEmpty ? line : (standby == nil ? "Nothing to stand by for" : "No cue point set")
+        cuePoint.textColor = line.isEmpty ? Desk.dim : Desk.text
+        cuePoint.font = line.isEmpty ? NSFontManager.shared.convert(Desk.sans(13), toHaveTrait: .italicFontMask) : Desk.sans(13)
+        cuePointBar.layer?.backgroundColor = (line.isEmpty ? Desk.line : Desk.brass).cgColor
+        liveNumber.stringValue = live?.number ?? "\u{2014}"
+        liveName.stringValue = live?.text ?? "\u{2014}"
+        needsLayout = true
+    }
+
+    /// The height the panel needs at a width.
+    func height(width: CGFloat) -> CGFloat {
+        let inner = width - 32
+        return 15 + 16 + 2 + 36 + 10 + (arm.stringValue.isEmpty ? 0 : 18)
+            + (Desk.height(of: cuePoint, width: inner - 22) + 18) + 12 + 1 + 12 + 16 + 2 + 22 + 15
+    }
+
+    override func layout() {
+        super.layout()
+        let x: CGFloat = 16, inner = bounds.width - 32
+        var y: CGFloat = 15
+        standingBy.frame = NSRect(x: x, y: y, width: inner, height: 16); y += 18
+        number.frame = NSRect(x: x, y: y, width: inner * 0.5, height: 36)
+        name.frame = NSRect(x: x + inner * 0.35, y: y + 14, width: inner * 0.65, height: 18); y += 46
+        arm.isHidden = arm.stringValue.isEmpty
+        if !arm.isHidden {
+            arm.frame = NSRect(x: x, y: y - 6, width: inner, height: 16)
+            y += 18
+        }
+        let textHeight = Desk.height(of: cuePoint, width: inner - 22)
+        cuePointBox.frame = NSRect(x: x, y: y, width: inner, height: textHeight + 18)
+        cuePointBar.frame = NSRect(x: 0, y: 0, width: 2, height: textHeight + 18)
+        cuePoint.frame = NSRect(x: 11, y: 9, width: inner - 22, height: textHeight); y += textHeight + 18 + 12
+        divider.frame = NSRect(x: x, y: y, width: inner, height: 1); y += 13
+        onScreen.frame = NSRect(x: x, y: y, width: inner, height: 16); y += 18
+        liveNumber.frame = NSRect(x: x, y: y, width: inner * 0.4, height: 22)
+        liveName.frame = NSRect(x: x + inner * 0.3, y: y + 4, width: inner * 0.7, height: 16)
+    }
+}
+
+// MARK: - Cue list
+
+/// One row: number, a glyph for the kind, the name, and beneath it the
+/// subtitle and the cue point. The live cue sits on a raised background; the
+/// standby cue has a brass number and a brass bar. A transition in that isn't
+/// the show's default is noted in brass along the top, between this cue and
+/// the one before.
+final class CueRowView: NSView {
+    let cue: Cue
+    let transitionNote: String?
+    var isStandby = false { didSet { if isStandby != oldValue { needsDisplay = true } } }
+    var isLive = false { didSet { if isLive != oldValue { needsDisplay = true } } }
+    var hasIssue = false
+    /// In edit mode, a picture or clip dropped on an image or video row goes
+    /// to that cue.
+    var acceptsMedia = false
+    private var targeted = false { didSet { needsDisplay = true } }
+    var onClick: (UUID) -> Void = { _ in }
+    var onDrop: (URL, UUID) -> Void = { _, _ in }
+
+    init(cue: Cue, transitionNote: String? = nil) {
+        self.cue = cue
+        self.transitionNote = transitionNote
+        super.init(frame: .zero)
+        let continues = cue.continueMode.continues ? "Continues " + cue.continueMode.summary : nil
+        toolTip = [cue.line.isEmpty ? nil : cue.line, continues].compactMap { $0 }.joined(separator: "\n").nilIfEmpty
+        if cue.kind == .image || cue.kind == .video { registerForDraggedTypes([.fileURL]) }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    /// At the right of the row, for a cue that moves on by itself: a down
+    /// arrow if it continues when finished, whatever the wait after, or the
+    /// moment it fires; a clock if it continues a while after it fires.
+    static func continueSymbol(_ mode: ContinueMode) -> String? {
+        switch mode {
+        case .whenCued: nil
+        case .whenFinished, .after(0): "arrow.down"
+        case .after: "clock"
+        }
+    }
+
+    static func kindGlyph(_ kind: Cue.Kind) -> String {
+        switch kind {
+        case .title: "\u{2261}"
+        case .image: "\u{25A6}"
+        case .video: "\u{25B6}"
+        case .blank: "\u{25A1}"
+        }
+    }
+
+    var subtitle: String {
+        switch cue.content {
+        case .title(let c): c.sub
+        case .image(let c): c.src.isEmpty ? "no picture" : ""
+        case .video(let c): [c.sub, c.atEnd == .hold ? "" : c.atEnd.rawValue].filter { !$0.isEmpty }.joined(separator: "   ")
+        case .blank(let c): c.colour.hex
+        }
+    }
+
+    /// What the cue list says about a cue's own transition in, if it has one.
+    static func transitionNote(for cue: Cue, defaults: ShowSettings) -> String? {
+        guard !cue.transition.isEmpty else { return nil }
+        let transition = cue.transitionIn(defaults: defaults)
+        return transition.style == .snap ? "snap" : "fade " + SettingKey.fade.format(.number(transition.fadeMs))
+    }
+
+    private static let noteHeight: CGFloat = 14
+
+    var preferredHeight: CGFloat {
+        16 + 18 + (subtitle.isEmpty ? 0 : 17) + (cue.line.isEmpty ? 0 : 17) + (transitionNote == nil ? 0 : Self.noteHeight)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let box = bounds.insetBy(dx: 0.5, dy: 0.5)
+        if targeted {
+            let path = NSBezierPath(roundedRect: box, xRadius: 3, yRadius: 3)
+            Desk.raised.setFill()
+            path.fill()
+            Desk.brass.setStroke()
+            path.stroke()
+        } else if isLive {
+            let path = NSBezierPath(roundedRect: box, xRadius: 3, yRadius: 3)
+            Desk.raised.setFill()
+            path.fill()
+            Desk.lineBright.setStroke()
+            path.stroke()
+        }
+        if isStandby {
+            Desk.brass.setFill()
+            NSRect(x: 0, y: 6, width: 2, height: bounds.height - 12).fill()
+        }
+
+        func draw(_ text: String, _ font: NSFont, _ colour: NSColor, x: CGFloat, y: CGFloat, width: CGFloat, align: NSTextAlignment = .left, kern: CGFloat = 0) {
+            let style = NSMutableParagraphStyle()
+            style.alignment = align
+            style.lineBreakMode = .byTruncatingTail
+            NSAttributedString(string: text, attributes: [
+                .font: font, .foregroundColor: colour, .paragraphStyle: style, .kern: kern,
+            ]).draw(in: NSRect(x: x, y: y, width: width, height: 18))
+        }
+
+        var y: CGFloat = 8
+        if let transitionNote {
+            draw("\u{2193} " + transitionNote, Desk.sans(10.5), Desk.brass, x: 78, y: 3, width: bounds.width - 88)
+            y += Self.noteHeight
+        }
+        draw(cue.number, Desk.mono(12), isStandby ? Desk.brass : Desk.dim, x: 8, y: y + 1, width: 40, align: .right)
+        draw(Self.kindGlyph(cue.kind), Desk.mono(11), Desk.dim, x: 56, y: y + 1, width: 14)
+        // Marks at the right: how the cue continues, then any problem.
+        let symbol = Self.continueSymbol(cue.continueMode)
+        let marks = CGFloat((symbol == nil ? 0 : 1) + (hasIssue ? 1 : 0))
+        let textX: CGFloat = 78, textWidth = bounds.width - textX - 10 - marks * 18
+        draw(cue.text.isEmpty ? "\u{2014}" : cue.text, Desk.mono(13), Desk.text, x: textX, y: y, width: textWidth, kern: 0.65)
+        var markX = bounds.width - 22
+        if let symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [isStandby ? Desk.brass : Desk.dim]))) {
+            let size = image.size
+            // The row draws top down; the symbol must stay the right way up.
+            image.draw(in: NSRect(x: markX + (14 - size.width) / 2, y: y + 1 + (16 - size.height) / 2, width: size.width, height: size.height),
+                       from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            markX -= 18
+        }
+        if hasIssue {
+            draw("!", Desk.mono(13, .bold), Desk.brass, x: markX + 2, y: y, width: 12)
+        }
+        y += 18
+        if !subtitle.isEmpty {
+            draw(subtitle, Desk.sans(11.5), Desk.dim, x: textX, y: y, width: textWidth)
+            y += 17
+        }
+        if !cue.line.isEmpty {
+            let italic = NSFontManager.shared.convert(Desk.sans(11.5), toHaveTrait: .italicFontMask)
+            draw(cue.line, italic, Desk.dim, x: textX, y: y, width: textWidth)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onClick(cue.id)
+    }
+
+    private func droppedURL(_ info: any NSDraggingInfo) -> URL? {
+        guard acceptsMedia else { return nil }
+        let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
+        guard let url = urls?.first, ShowDocument.accepts(url, for: cue.kind) else { return nil }
+        return url
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        targeted = droppedURL(sender) != nil
+        return targeted ? .copy : []
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        targeted = false
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        targeted = false
+        guard let url = droppedURL(sender) else { return false }
+        onDrop(url, cue.id)
+        return true
+    }
+}
+
+final class CueListView: NSScrollView {
+    private let document = PanelView()
+    private var rows: [CueRowView] = []
+    private var shown: [Cue] = []
+    private var shownNotes: [String?] = []
+    var onClick: (UUID) -> Void = { _ in }
+    var onDrop: (URL, UUID) -> Void = { _, _ in }
+
+    init() {
+        super.init(frame: .zero)
+        drawsBackground = false
+        hasVerticalScroller = true
+        autohidesScrollers = true
+        documentView = document
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(cues: [Cue], defaults: ShowSettings, standby: UUID?, live: UUID?, issues: Set<UUID>, editing: Bool) {
+        let notes = cues.map { CueRowView.transitionNote(for: $0, defaults: defaults) }
+        if cues != shown || notes != shownNotes {
+            rows.forEach { $0.removeFromSuperview() }
+            rows = zip(cues, notes).map { cue, note in
+                let row = CueRowView(cue: cue, transitionNote: note)
+                row.onClick = { [weak self] in self?.onClick($0) }
+                row.onDrop = { [weak self] url, id in self?.onDrop(url, id) }
+                document.addSubview(row)
+                return row
+            }
+            shown = cues
+            shownNotes = notes
+            needsLayout = true
+        }
+        for row in rows {
+            row.isStandby = row.cue.id == standby
+            row.isLive = row.cue.id == live
+            row.hasIssue = issues.contains(row.cue.id)
+            row.acceptsMedia = editing
+        }
+        layoutRows()
+        // Keep the standby row in view, and the live row with it if both fit.
+        if let standbyRow = rows.first(where: \.isStandby) {
+            var target = standbyRow.frame
+            if let liveRow = rows.first(where: \.isLive), target.union(liveRow.frame).height + 48 <= contentSize.height {
+                target = target.union(liveRow.frame)
+            }
+            document.scrollToVisible(target.insetBy(dx: 0, dy: -24))
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        layoutRows()
+    }
+
+    private func layoutRows() {
+        let width = contentSize.width
+        var y: CGFloat = 0
+        for row in rows {
+            row.frame = NSRect(x: 0, y: y, width: width, height: row.preferredHeight)
+            y += row.preferredHeight + 3
+        }
+        document.frame = NSRect(x: 0, y: 0, width: width, height: max(y, contentSize.height))
+    }
+}
+
+// MARK: - Warnings
+
+/// A warning that stays until it no longer applies: brass-edged, on the
+/// right, above the preview.
+final class WarningBox: PanelView {
+    private let bar = PanelView(fill: Desk.brass)
+    let text = Desk.label("", font: Desk.sans(12.5), colour: Desk.text, wraps: true)
+
+    init() {
+        super.init(fill: Desk.raised)
+        addSubview(bar)
+        addSubview(text)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func height(width: CGFloat) -> CGFloat {
+        Desk.height(of: text, width: width - 24) + 20
+    }
+
+    override func layout() {
+        super.layout()
+        bar.frame = NSRect(x: 0, y: 0, width: 2, height: bounds.height)
+        text.frame = NSRect(x: 12, y: 10, width: bounds.width - 24, height: bounds.height - 20)
+    }
+}
+
+// MARK: - Projection area
+
+/// Edit mode's geometry controls: width, height and offsets as percentages
+/// of the projector output, alignment guides, and a reset.
+final class GeometryPanel: PanelView {
+    private let heading = Desk.label("Projection area", font: Desk.sans(12.5, .semibold), colour: Desk.text)
+    private var rows: [(label: NSTextField, slider: NSSlider, value: NSTextField)] = []
+    let guides = NSButton(checkboxWithTitle: "Alignment guides", target: nil, action: nil)
+    let fill = NSButton(title: "Fill the Output", target: nil, action: nil)
+    private let note = Desk.label(
+        "Percentages of the projector output, so they hold if the resolution changes. Guides switch themselves off in show mode.",
+        font: Desk.sans(12), colour: Desk.dim, wraps: true)
+
+    var onChange: (Geometry) -> Void = { _ in }
+    private var geometry = Geometry()
+
+    init() {
+        super.init(border: Desk.line, radius: 4)
+        addSubview(heading)
+        let specs: [(String, ClosedRange<Int>)] = [
+            ("Width", SettingRange.geometrySize), ("Height", SettingRange.geometrySize),
+            ("Across", SettingRange.geometryOffset), ("Down", SettingRange.geometryOffset),
+        ]
+        for (name, range) in specs {
+            let label = Desk.label(name, font: Desk.sans(12.5), colour: Desk.dim)
+            let slider = NSSlider(value: 0, minValue: Double(range.lowerBound), maxValue: Double(range.upperBound),
+                                  target: self, action: #selector(sliderMoved(_:)))
+            // Sliders never take the keyboard, or the arrow keys would move
+            // them instead of the standby cue.
+            slider.refusesFirstResponder = true
+            slider.isContinuous = true
+            let value = Desk.label("", font: Desk.mono(12), colour: Desk.dim)
+            value.alignment = .right
+            for view in [label, slider, value] as [NSView] { addSubview(view) }
+            rows.append((label, slider, value))
+        }
+        guides.refusesFirstResponder = true
+        fill.refusesFirstResponder = true
+        fill.bezelStyle = .rounded
+        fill.target = self
+        fill.action = #selector(fillOutput)
+        for view in [guides, fill, note] as [NSView] { addSubview(view) }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(geometry: Geometry, guidesOn: Bool) {
+        self.geometry = geometry
+        let values = [geometry.width, geometry.height, geometry.across, geometry.down]
+        for (i, row) in rows.enumerated() {
+            row.slider.integerValue = values[i]
+            row.value.stringValue = i < 2 ? "\(values[i])%" : String(format: "%+d%%", values[i]).replacingOccurrences(of: "+0", with: "0")
+        }
+        guides.state = guidesOn ? .on : .off
+    }
+
+    @objc private func sliderMoved(_ sender: NSSlider) {
+        guard let i = rows.firstIndex(where: { $0.slider === sender }) else { return }
+        var g = geometry
+        switch i {
+        case 0: g.width = sender.integerValue
+        case 1: g.height = sender.integerValue
+        case 2: g.across = sender.integerValue
+        default: g.down = sender.integerValue
+        }
+        onChange(g)
+    }
+
+    @objc private func fillOutput() {
+        onChange(Geometry())
+    }
+
+    var preferredHeight: CGFloat {
+        15 + 18 + 11 + CGFloat(rows.count) * 31 + 6 + 28 + 10 + 34 + 15
+    }
+
+    override func layout() {
+        super.layout()
+        let x: CGFloat = 16, inner = bounds.width - 32
+        var y: CGFloat = 15
+        heading.frame = NSRect(x: x, y: y, width: inner, height: 18); y += 29
+        for row in rows {
+            row.label.frame = NSRect(x: x, y: y + 3, width: 84, height: 18)
+            row.slider.frame = NSRect(x: x + 92, y: y, width: inner - 92 - 64, height: 24)
+            row.value.frame = NSRect(x: x + inner - 56, y: y + 3, width: 56, height: 18)
+            y += 31
+        }
+        y += 6
+        guides.frame = NSRect(x: x, y: y + 4, width: guides.fittingSize.width, height: 20)
+        let fillWidth = fill.fittingSize.width
+        fill.frame = NSRect(x: guides.frame.maxX + 16, y: y, width: fillWidth, height: 28)
+        y += 38
+        note.frame = NSRect(x: x, y: y, width: inner, height: Desk.height(of: note, width: inner))
+    }
+}
+
+// MARK: - Key bar
+
+/// The keyboard reference along the bottom.
+final class KeyBar: PanelView {
+    private let keys: [(String, String)] = [
+        ("Space", "Fire the standby cue"),
+        ("\u{2190} \u{2192}", "Stand by previous, next"),
+        ("0\u{2013}9 \u{21A9}", "Go to a cue number"),
+        ("R", "Run again"),
+        ("B", "Blackout"),
+    ]
+
+    init() {
+        super.init(fill: Desk.raised)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        Desk.line.setFill()
+        NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
+
+        var x: CGFloat = 16
+        let midY = bounds.height / 2
+        for (key, meaning) in keys {
+            let keyText = NSAttributedString(string: key, attributes: [.font: Desk.mono(12), .foregroundColor: Desk.brass])
+            let keySize = keyText.size()
+            let cap = NSRect(x: x, y: midY - 10, width: keySize.width + 14, height: 20)
+            let path = NSBezierPath(roundedRect: cap.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+            Desk.sunk.setFill()
+            path.fill()
+            Desk.line.setStroke()
+            path.stroke()
+            keyText.draw(at: NSPoint(x: cap.minX + 7, y: midY - keySize.height / 2))
+            let meaningText = NSAttributedString(string: meaning, attributes: [.font: Desk.sans(12.5), .foregroundColor: Desk.dim])
+            let meaningSize = meaningText.size()
+            meaningText.draw(at: NSPoint(x: cap.maxX + 7, y: midY - meaningSize.height / 2))
+            x = cap.maxX + 7 + meaningSize.width + 22
+        }
+        let trail = NSAttributedString(string: "These work in the projector window too.",
+                                       attributes: [.font: Desk.sans(12.5), .foregroundColor: Desk.dim])
+        let trailSize = trail.size()
+        if bounds.width - 16 - trailSize.width > x {
+            trail.draw(at: NSPoint(x: bounds.width - 16 - trailSize.width, y: midY - trailSize.height / 2))
+        }
+    }
+}
+
+extension String {
+    /// Nil for an empty string, as a tooltip with nothing to say.
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
