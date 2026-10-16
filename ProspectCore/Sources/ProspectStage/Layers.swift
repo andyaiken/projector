@@ -21,9 +21,12 @@ struct TextRun: Equatable {
     var x: CGFloat
     /// Centre the run in a cell this wide, rather than starting it at `x`.
     var cell: CGFloat?
+    /// Raised this far above the baseline, or below it when negative, as a
+    /// letter on a dial is while it turns.
+    var dy: CGFloat = 0
 
     static func == (a: TextRun, b: TextRun) -> Bool {
-        a.text == b.text && CFEqual(a.font, b.font) && a.colour == b.colour && a.x == b.x && a.cell == b.cell
+        a.text == b.text && CFEqual(a.font, b.font) && a.colour == b.colour && a.x == b.x && a.cell == b.cell && a.dy == b.dy
     }
 }
 
@@ -69,7 +72,7 @@ final class TextLayer: StillLayer {
             if let cell = run.cell {
                 x += (cell - CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))) / 2
             }
-            ctx.textPosition = CGPoint(x: x, y: baseline)
+            ctx.textPosition = CGPoint(x: x, y: baseline + run.dy)
             CTLineDraw(line, ctx)
         }
     }

@@ -57,7 +57,7 @@ struct SettingKeyTests {
 
     @Test("Which settings apply to which cues")
     func applicability() {
-        #expect(SettingKey.allCases.filter { $0.applies(to: .title) } == [.clock, .wave, .hold, .histogram, .sceneLine, .transition, .fade])
+        #expect(SettingKey.allCases.filter { $0.applies(to: .title) } == [.clock, .wave, .hold, .histogram, .sceneLine, .letters, .transition, .fade])
         #expect(SettingKey.allCases.filter { $0.applies(to: .image) } == [.clock, .wave, .hold, .grid, .flip, .order, .reveal, .transition, .fade])
         #expect(SettingKey.allCases.filter { $0.applies(to: .video) } == [.transition, .fade], "every cue has a transition in")
         #expect(SettingKey.allCases.filter { $0.applies(to: .blank) } == [.transition, .fade])
@@ -84,6 +84,23 @@ struct SettingKeyTests {
         #expect(SettingKey.holdLength(holdTicks: 44, clockMs: 44) == "1.9 s")
         #expect(SettingKey.holdLength(holdTicks: 10, clockMs: 100) == "1.0 s")
         #expect(SettingKey.holdLength(holdTicks: 0, clockMs: 44) == nil, "no hold, nothing to time")
+    }
+
+    @Test("Letters: cycling or dials, a show default any decryption cue can override")
+    func letters() throws {
+        #expect(ShowSettings().letters == .cycle)
+        #expect(SettingKey.letters.format(.letters(.dials)) == "dials")
+        #expect(SettingKey.letters.choice(at: 1) == .letters(.dials) && SettingKey.letters.choiceIndex(of: .letters(.dials)) == 1)
+        var cue = Cue(content: .title(TitleContent(text: "ROSSLYN")))
+        SettingKey.letters.setOverride(.letters(.dials), in: &cue)
+        guard case .title(let content) = cue.content else { return }
+        #expect(ShowSettings().resolved(content.overrides).letters == .dials)
+        let back = try JSONDecoder().decode(Cue.self, from: JSONEncoder().encode(cue))
+        #expect(SettingKey.letters.override(in: back) == .letters(.dials))
+        #expect(!SettingKey.letters.applies(to: .image) && !SettingKey.letters.applies(to: .anagram))
+        var s = ShowSettings()
+        SettingKey.letters.set(.letters(.dials), in: &s)
+        #expect(try JSONDecoder().decode(ShowSettings.self, from: JSONEncoder().encode(s)).letters == .dials)
     }
 
     @Test("Reveal by: flipping or sharpening, a show default any image cue can override")

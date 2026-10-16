@@ -75,6 +75,7 @@ public struct CueSheet: Equatable, Sendable {
         let lines: [String]
         switch cue.content {
         case .title(let c): lines = [c.text, c.sub]
+        case .anagram(let c): lines = [c.text, c.answer.isEmpty ? "" : "\u{2192} " + c.answer]
         case .image(let c): lines = [c.text]
         case .video(let c): lines = [c.text, c.sub]
         case .blank(let c): lines = [c.text, c.colour.hex.uppercased()]
@@ -113,6 +114,8 @@ public struct CueSheet: Equatable, Sendable {
         switch cue.content {
         case .title:
             return timing(SettingKey.title)
+        case .anagram:
+            return timing(SettingKey.anagram)
         case .image(let c):
             return timing(SettingKey.image) + [Setting(name: "Picture", value: file(c.src, "none"), overridden: false)]
         case .video(let c):

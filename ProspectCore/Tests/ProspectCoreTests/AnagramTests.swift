@@ -1,0 +1,147 @@
+import Foundation
+import Testing
+@testable import ProspectCore
+
+/// Draws nothing but zero, so starts come out exact.
+struct Still: UnitRandom {
+    mutating func next() -> Double { 0 }
+}
+
+@Suite("Anagrams")
+struct AnagramTests {
+    static let louvre = (from: "O, Draconian devil! Oh, lame saint!", to: "Leonardo da Vinci! The Mona Lisa!")
+    static let fibonacci = (from: "13-3-2-21-1-1-8-5", to: "1-1-2-3-5-8-13-21")
+
+    func plan(_ phrases: (from: String, to: String), wave: Int = 3) -> AnagramPlan {
+        var still = Still()
+        return AnagramPlan(from: phrases.from, to: phrases.to, wave: wave, random: &still)
+    }
+
+    @Test("A long phrase splits at the space nearest its middle, as the book sets it")
+    func lines() {
+        #expect(AnagramPlan.lines(Self.louvre.from) == ["O, DRACONIAN DEVIL!", "OH, LAME SAINT!"])
+        #expect(AnagramPlan.lines(Self.louvre.to) == ["LEONARDO DA VINCI!", "THE MONA LISA!"])
+        #expect(AnagramPlan.lines("  so dark   the con of man ") == ["SO DARK THE CON OF MAN"], "short enough for one line")
+        #expect(AnagramPlan.lines("") == [])
+    }
+
+    @Test("Every letter of an exact anagram travels; punctuation only one phrase has fades")
+    func everyLetterTravels() {
+        let p = plan(Self.louvre)
+        #expect(!p.movesWholeWords)
+        #expect(p.pieces.count == 30, "26 letters, two commas and two exclamation marks")
+        #expect(p.pieces.filter { $0.travels }.count == 28)
+        #expect(p.pieces.filter { $0.to == nil }.map(\.character) == [",", ","])
+        #expect(p.pieces.allSatisfy { $0.from != nil }, "nothing to fade in")
+        #expect(AnagramPlan.leftovers(from: Self.louvre.from, to: Self.louvre.to) == ("", ""))
+    }
+
+    @Test("Like letters keep their order, so no two of them cross")
+    func likeLettersKeepOrder() {
+        let p = plan(Self.louvre)
+        func reading(_ s: AnagramPlan.Slot) -> Int { s.line * 100 + s.column }
+        for letter in Set(p.pieces.map(\.character)) {
+            let targets = p.pieces.filter { $0.character == letter && $0.travels }.compactMap(\.to).map(reading)
+            #expect(targets == targets.sorted(), "\(letter)")
+        }
+        // The first A of the puzzle, in DRACONIAN, lands in LEONARDO.
+        let a = p.pieces.first { $0.character == "A" }
+        #expect(a?.from == .init(line: 0, column: 5) && a?.to == .init(line: 0, column: 4))
+    }
+
+    @Test("Numbers in a new order move whole: 13 travels as 13")
+    func wholeNumbers() {
+        let p = plan(Self.fibonacci)
+        #expect(p.movesWholeWords)
+        func piece(at column: Int) -> AnagramPlan.Piece? { p.pieces.first { $0.from == .init(line: 0, column: column) } }
+        // 13 heads for the end, 21 for the very end, and the two 1s to the front.
+        #expect(piece(at: 0)?.to?.column == 12 && piece(at: 1)?.to?.column == 13)
+        #expect(piece(at: 7)?.to?.column == 15 && piece(at: 8)?.to?.column == 16)
+        #expect(piece(at: 10)?.to?.column == 0 && piece(at: 12)?.to?.column == 2)
+        #expect(piece(at: 0)?.start == piece(at: 1)?.start, "both digits set off together")
+        #expect(p.pieces.allSatisfy { $0.travels }, "the dashes swap places too")
+    }
+
+    @Test("Pieces set off in reading order, a wave apart, closing up so all have gone before the first lands")
+    func timing() {
+        let short = plan((from: "RATS", to: "STAR"), wave: 3)
+        #expect(short.pieces.map(\.start) == [0, 3, 6, 9], "a wave apart when they fit")
+        #expect(short.duration == 9 + AnagramPlan.travelFrames)
+        let long = plan(Self.louvre, wave: 3)
+        let starts = long.pieces.map(\.start)
+        #expect(starts == starts.sorted() && starts.first == 0)
+        #expect(starts.last! < AnagramPlan.travelFrames, "the last leaves before the first lands")
+        #expect(long.duration == starts.last! + AnagramPlan.travelFrames)
+        #expect(plan(Self.louvre, wave: 0).pieces.allSatisfy { $0.start == 0 }, "no wave: all at once")
+        let whole = plan(Self.fibonacci, wave: 3)
+        // Eight numbers and seven dashes: fifteen departures.
+        #expect(Set(whole.pieces.map(\.start)).count == 15)
+    }
+
+    @Test("Letters only the answer has fade in as the last pieces land")
+    func notAnExactAnagram() {
+        let p = plan((from: "ABC", to: "ABD"), wave: 2)
+        #expect(AnagramPlan.leftovers(from: "ABC", to: "ABD") == ("C", "D"))
+        let c = p.pieces.first { $0.character == "C" }, d = p.pieces.first { $0.character == "D" }
+        #expect(c?.to == nil && c?.start == 4)
+        #expect(d?.from == nil && d?.to == .init(line: 0, column: 2))
+        // B, the last to travel, lands at 2 + 24; D finishes fading in then.
+        #expect(p.duration == 26 && d?.start == 26 - AnagramPlan.fadeFrames)
+    }
+
+    @Test("Progress runs from 0 at the start to 1 at the landing")
+    func progress() {
+        let p = plan(Self.louvre)
+        let first = p.pieces[0]
+        #expect(p.progress(of: first, at: -5) == 0)
+        #expect(p.progress(of: first, at: 12) == 0.5)
+        #expect(p.progress(of: first, at: 100) == 1)
+        let comma = p.pieces[1]
+        #expect(p.progress(of: comma, at: comma.start + AnagramPlan.fadeFrames / 2) == 0.5, "fades take half as long")
+    }
+
+    @Test("An anagram cue keeps both phrases and its overrides in show.json")
+    func roundTrips() throws {
+        let cue = Cue(number: "4", content: .anagram(AnagramContent(text: Self.louvre.from, answer: Self.louvre.to,
+                                                                    overrides: AnagramOverrides(waveTicks: 2))))
+        let data = try JSONEncoder().encode(cue)
+        let json = try #require(String(data: data, encoding: .utf8))
+        #expect(json.contains("\"kind\":\"anagram\"") && json.contains("\"answer\""))
+        #expect(try JSONDecoder().decode(Cue.self, from: data) == cue)
+        #expect(cue.sub == Self.louvre.to, "the answer is the cue's second line")
+        #expect(cue.finishes && !cue.isInstant)
+    }
+
+    @Test("An anagram overrides the timing, and runs on its own clock")
+    func settings() {
+        #expect(SettingKey.allCases.filter { $0.applies(to: .anagram) } == [.clock, .wave, .hold, .transition, .fade])
+        var cue = Cue(content: .anagram(AnagramContent(text: "A", answer: "A")))
+        SettingKey.hold.setOverride(.number(10), in: &cue)
+        #expect(cue.timing(defaults: ShowSettings()) == CueTiming(clockMs: 44, holdTicks: 10, isInstant: false))
+    }
+
+    @Test("The sheet flags an anagram that isn't exact, or is missing a phrase")
+    func issues() {
+        let off = Cue(number: "1", content: .anagram(AnagramContent(text: "Listen", answer: "Silent!")))
+        let wrong = Cue(number: "2", content: .anagram(AnagramContent(text: "Rose", answer: "Ores line")))
+        let half = Cue(number: "3", content: .anagram(AnagramContent(text: "Rose", answer: " ")))
+        let show = Show(title: "T", cues: [off, wrong, half])
+        #expect(show.issues == [
+            .anagramLettersDiffer(cue: wrong.id, extra: "", missing: "EILN"),
+            .anagramWithoutPhrase(cue: half.id),
+        ], "punctuation may differ freely")
+        #expect(show.message(for: show.issues[0]) ==
+            "Cue 2 isn\u{2019}t an exact anagram: only the answer has E I L N. Those letters fade instead of moving.")
+    }
+
+    @Test("The printed sheet shows the phrase and what it becomes")
+    func sheet() {
+        let cue = Cue(number: "4", content: .anagram(AnagramContent(text: "SO DARK THE CON OF MAN", answer: "MADONNA OF THE ROCKS")))
+        let show = Show(title: "T", cues: [cue])
+        let dsm = CueSheet(show: show, title: "T", layout: .dsm)
+        #expect(dsm.rows[0].type == "Anagram")
+        #expect(dsm.rows[0].content == ["SO DARK THE CON OF MAN", "\u{2192} MADONNA OF THE ROCKS"])
+        let settings = CueSheet(show: show, title: "T", layout: .operatorSettings).rows[0].settings
+        #expect(settings.map(\.name) == ["Clock", "Wave", "Hold", "Transition", "Fade"])
+    }
+}

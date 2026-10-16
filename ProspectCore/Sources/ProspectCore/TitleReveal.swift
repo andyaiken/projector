@@ -1,3 +1,13 @@
+/// How a decryption's letters find their way home.
+public enum TitleLetters: String, Codable, Sendable, CaseIterable {
+    /// A burst of random glyphs, then rolling back through the ring, each in
+    /// its place.
+    case cycle
+    /// Each on a dial, as a cryptex's letters are: it spins a full turn and
+    /// its shift, slowing to settle on the letter.
+    case dials
+}
+
 /// A title cue, prepared: the travel plans for the place name and the scene
 /// line, and the scale the histogram is drawn against.
 public struct TitleReveal: Sendable {
@@ -6,6 +16,7 @@ public struct TitleReveal: Sendable {
     /// The scene line is switched on for this cue, whether or not it has one.
     public let sceneLine: Bool
     public let histogram: Bool
+    public let letters: TitleLetters
     /// The tallest letter count in the settled text. Bars are scaled against
     /// this rather than the current frame, so they don't jump as glyphs cycle.
     public let histogramScale: Int
@@ -26,6 +37,7 @@ public struct TitleReveal: Sendable {
         scenePlan = TravelPlan(text: scene, key: key, wave: settings.waveTicks, random: &random)
         sceneLine = settings.sceneLine
         histogram = settings.histogram
+        letters = settings.letters
 
         var counts = [Int](repeating: 0, count: 26)
         let settled = text.uppercased() + (settings.sceneLine ? scene.uppercased() : "")
@@ -41,8 +53,15 @@ public struct TitleReveal: Sendable {
 
     /// Everything the cue paints on frame `f`.
     public func frame(_ f: Int, random: inout some UnitRandom) -> TitleFrame {
-        let title = titlePlan.frame(f, random: &random)
-        let scene = sceneLine ? scenePlan.frame(f, random: &random) : []
+        let title: [GlyphState], scene: [GlyphState]
+        switch letters {
+        case .cycle:
+            title = titlePlan.frame(f, random: &random)
+            scene = sceneLine ? scenePlan.frame(f, random: &random) : []
+        case .dials:
+            title = titlePlan.dials(f)
+            scene = sceneLine ? scenePlan.dials(f) : []
+        }
 
         var counts = [Int](repeating: 0, count: 26)
         for g in title + scene {

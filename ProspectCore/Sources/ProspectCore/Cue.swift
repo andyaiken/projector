@@ -19,13 +19,14 @@ public struct Cue: Identifiable, Equatable, Sendable {
 
     public enum Content: Equatable, Sendable {
         case title(TitleContent)
+        case anagram(AnagramContent)
         case image(ImageContent)
         case video(VideoContent)
         case blank(BlankContent)
     }
 
     public enum Kind: String, Codable, Sendable, CaseIterable {
-        case title, image, video, blank
+        case title, anagram, image, video, blank
 
         /// What the operator calls it, as it reads mid-sentence. The raw
         /// value is what show.json stores, and doesn't change with the name.
@@ -53,17 +54,20 @@ public struct Cue: Identifiable, Equatable, Sendable {
     public var kind: Kind {
         switch content {
         case .title: .title
+        case .anagram: .anagram
         case .image: .image
         case .video: .video
         case .blank: .blank
         }
     }
 
-    /// The text on a decryption cue; the label on the others.
+    /// The text on a decryption cue, the first phrase of an anagram; the
+    /// label on the others.
     public var text: String {
         get {
             switch content {
             case .title(let c): c.text
+            case .anagram(let c): c.text
             case .image(let c): c.text
             case .video(let c): c.text
             case .blank(let c): c.text
@@ -72,6 +76,7 @@ public struct Cue: Identifiable, Equatable, Sendable {
         set {
             switch content {
             case .title(var c): c.text = newValue; content = .title(c)
+            case .anagram(var c): c.text = newValue; content = .anagram(c)
             case .image(var c): c.text = newValue; content = .image(c)
             case .video(var c): c.text = newValue; content = .video(c)
             case .blank(var c): c.text = newValue; content = .blank(c)
@@ -79,12 +84,13 @@ public struct Cue: Identifiable, Equatable, Sendable {
         }
     }
 
-    /// The subtext on a decryption cue; the caption on a video cue. Image and
-    /// blank cues have none.
+    /// The subtext on a decryption cue, the answer an anagram rearranges
+    /// into, the caption on a video cue. Image and blank cues have none.
     public var sub: String {
         get {
             switch content {
             case .title(let c): c.sub
+            case .anagram(let c): c.answer
             case .image: ""
             case .video(let c): c.sub
             case .blank: ""
@@ -93,6 +99,7 @@ public struct Cue: Identifiable, Equatable, Sendable {
         set {
             switch content {
             case .title(var c): c.sub = newValue; content = .title(c)
+            case .anagram(var c): c.answer = newValue; content = .anagram(c)
             case .image: break
             case .video(var c): c.sub = newValue; content = .video(c)
             case .blank: break
@@ -117,6 +124,20 @@ public struct TitleContent: Equatable, Sendable {
         self.text = text
         self.sub = sub
         self.key = key
+        self.overrides = overrides
+    }
+}
+
+public struct AnagramContent: Equatable, Sendable {
+    /// The phrase as it first appears.
+    public var text: String
+    /// The phrase its letters rearrange into.
+    public var answer: String
+    public var overrides: AnagramOverrides
+
+    public init(text: String = "", answer: String = "", overrides: AnagramOverrides = .init()) {
+        self.text = text
+        self.answer = answer
         self.overrides = overrides
     }
 }
@@ -182,18 +203,45 @@ public struct TitleOverrides: Codable, Equatable, Sendable {
     public var holdTicks: Int?
     public var histogram: Bool?
     public var sceneLine: Bool?
+    public var letters: TitleLetters?
 
-    public init(clockMs: Int? = nil, waveTicks: Int? = nil, holdTicks: Int? = nil, histogram: Bool? = nil, sceneLine: Bool? = nil) {
+    public init(clockMs: Int? = nil, waveTicks: Int? = nil, holdTicks: Int? = nil, histogram: Bool? = nil, sceneLine: Bool? = nil,
+                letters: TitleLetters? = nil) {
         self.clockMs = clockMs
         self.waveTicks = waveTicks
         self.holdTicks = holdTicks
         self.histogram = histogram
         self.sceneLine = sceneLine
+        self.letters = letters
     }
 
     public var isEmpty: Bool { self == TitleOverrides() }
 
     func clamped() -> TitleOverrides {
+        var o = self
+        o.clockMs = clockMs.map { SettingRange.clockMs.clamp($0) }
+        o.waveTicks = waveTicks.map { SettingRange.waveTicks.clamp($0) }
+        o.holdTicks = holdTicks.map { SettingRange.holdTicks.clamp($0) }
+        return o
+    }
+}
+
+/// An anagram cue's own values for settings the show holds defaults for. Nil
+/// inherits the show's default.
+public struct AnagramOverrides: Codable, Equatable, Sendable {
+    public var clockMs: Int?
+    public var waveTicks: Int?
+    public var holdTicks: Int?
+
+    public init(clockMs: Int? = nil, waveTicks: Int? = nil, holdTicks: Int? = nil) {
+        self.clockMs = clockMs
+        self.waveTicks = waveTicks
+        self.holdTicks = holdTicks
+    }
+
+    public var isEmpty: Bool { self == AnagramOverrides() }
+
+    func clamped() -> AnagramOverrides {
         var o = self
         o.clockMs = clockMs.map { SettingRange.clockMs.clamp($0) }
         o.waveTicks = waveTicks.map { SettingRange.waveTicks.clamp($0) }
@@ -243,7 +291,7 @@ public struct ImageOverrides: Codable, Equatable, Sendable {
 // reads and repairs by hand. Decoding is lenient about anything missing.
 extension Cue: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, num, kind, line, continueMode = "continue", transition, text, sub, key, src, colour, atEnd, overrides
+        case id, num, kind, line, continueMode = "continue", transition, text, sub, key, answer, src, colour, atEnd, overrides
     }
 
     public init(from decoder: Decoder) throws {
@@ -265,6 +313,12 @@ extension Cue: Codable {
                 sub: sub,
                 key: try c.decodeIfPresent(String.self, forKey: .key) ?? "",
                 overrides: (try c.decodeIfPresent(TitleOverrides.self, forKey: .overrides) ?? .init()).clamped()
+            ))
+        case .anagram:
+            content = .anagram(AnagramContent(
+                text: text,
+                answer: try c.decodeIfPresent(String.self, forKey: .answer) ?? "",
+                overrides: (try c.decodeIfPresent(AnagramOverrides.self, forKey: .overrides) ?? .init()).clamped()
             ))
         case .image:
             content = .image(ImageContent(
@@ -309,6 +363,9 @@ extension Cue: Codable {
             try c.encode(t.sub, forKey: .sub)
             try c.encode(t.key, forKey: .key)
             if !t.overrides.isEmpty { try c.encode(t.overrides, forKey: .overrides) }
+        case .anagram(let a):
+            try c.encode(a.answer, forKey: .answer)
+            if !a.overrides.isEmpty { try c.encode(a.overrides, forKey: .overrides) }
         case .image(let i):
             try c.encode(i.src, forKey: .src)
             if !i.overrides.isEmpty { try c.encode(i.overrides, forKey: .overrides) }

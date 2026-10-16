@@ -75,7 +75,7 @@ final class SettingRow: NSView {
         switch v {
         case .number(let n): slider?.integerValue = n
         case .flag(let on): toggle?.state = on ? .on : .off
-        case .order, .reveal, .style: popup?.selectItem(at: key.choiceIndex(of: v) ?? 0)
+        case .order, .reveal, .letters, .style: popup?.selectItem(at: key.choiceIndex(of: v) ?? 0)
         }
         value.stringValue = key.format(v)
         value.textColor = overridden == true ? Desk.brass : (overridden == false ? Desk.dim : Desk.text)
@@ -300,7 +300,7 @@ final class CueSettingsPanel: PanelView {
             note.stringValue = "A video plays on its own clock from GO, so it has only its transition in to set. Its end behaviour is in the Cue tab."
         case .blank:
             note.stringValue = "A blank is instant, so it has only its transition in to set. Its colour is in the Cue tab."
-        case .title, .image:
+        case .title, .anagram, .image:
             note.stringValue = SettingKey.timingExplanation + " Values in brass are set for this cue; the rest come from the Show tab. Reset puts a value back on the default."
         }
         let timing = cue.timing(defaults: defaults)

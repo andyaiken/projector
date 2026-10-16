@@ -157,6 +157,11 @@ public final class TitleRenderer: CueRenderer {
         tree.title.baseline = layout.titleLine.height - layout.titleBaseline
         tree.scene.frame = layout.sceneLine.flipped(within: H)
         tree.scene.baseline = layout.sceneLine.height - layout.sceneBaseline
+        // Letters on dials roll through a window the height of their line,
+        // softened at its top and bottom edges.
+        let dials = reveal?.letters == .dials
+        tree.title.mask = dials ? Self.window(tree.title.bounds) : nil
+        tree.scene.mask = dials ? Self.window(tree.scene.bounds) : nil
         tree.scene.isHidden = !(reveal?.showsScene ?? false)
 
         // The panel's children are placed in the inset's coordinates.
@@ -190,20 +195,52 @@ public final class TitleRenderer: CueRenderer {
     private func paint(_ frame: TitleFrame, on tree: Tree, animated: Bool) {
         guard let layout = tree.layout else { return }
 
-        tree.title.runs = frame.title.enumerated().map { i, g in
-            TextRun(text: String(g.glyph), font: layout.titleFont, colour: g.colour.cgColor,
-                    x: layout.titleCell(i), cell: layout.pitch)
+        tree.title.runs = frame.title.enumerated().flatMap { i, g in
+            Self.runs(for: g, font: layout.titleFont, alpha: 1, x: layout.titleCell(i), cell: layout.pitch,
+                      row: layout.titleLine.height)
         }
         // The scene line is drawn at 70% opacity, a step behind the place.
-        tree.scene.runs = frame.scene.enumerated().map { i, g in
-            TextRun(text: String(g.glyph), font: layout.sceneFont, colour: g.colour.cgColor(alpha: 0.7),
-                    x: CGFloat(i) * layout.scenePitch)
+        tree.scene.runs = frame.scene.enumerated().flatMap { i, g in
+            Self.runs(for: g, font: layout.sceneFont, alpha: 0.7, x: CGFloat(i) * layout.scenePitch, cell: nil,
+                      row: layout.sceneLine.height)
         }
 
         guard reveal?.histogram ?? true else { return }
         tree.readouts.runs = readoutRuns(frame, layout: layout)
         for (bar, height) in zip(tree.bars, frame.barHeights) {
             setHeight(of: bar, to: layout.bars.height * height / 100, animated: animated)
+        }
+    }
+
+    /// A line's window for letters on dials: clear at the very top and
+    /// bottom, whole through the middle.
+    static func window(_ bounds: CGRect) -> CALayer {
+        let mask = CAGradientLayer()
+        mask.frame = bounds
+        mask.colors = [CGColor(gray: 1, alpha: 0), CGColor(gray: 1, alpha: 1), CGColor(gray: 1, alpha: 1), CGColor(gray: 1, alpha: 0)]
+        mask.locations = [0, 0.12, 0.88, 1]
+        mask.actions = ["bounds": NSNull(), "position": NSNull()]
+        return mask
+    }
+
+    /// One character: its glyph, or, on a dial, the glyphs in its window, a
+    /// line apart, so one rolls out as the next rolls in, a little dimmer
+    /// the further from the middle. A dial at rest shows only its own.
+    static func runs(for g: GlyphState, font: CTFont, alpha: CGFloat, x: CGFloat, cell: CGFloat?, row: CGFloat) -> [TextRun] {
+        guard let dial = g.dial else {
+            return [TextRun(text: String(g.glyph), font: font, colour: g.colour.cgColor(alpha: alpha), x: x, cell: cell)]
+        }
+        let n = Cipher.ring.count
+        let base = Int(dial.rounded(.down))
+        return (base...base + 1).compactMap { i in
+            // Below the window for a glyph further round the ring: A sits
+            // above B, as on a drum read from the front.
+            let offset = CGFloat(Double(i) - dial)
+            guard abs(offset) < 1 else { return nil }
+            let weight = 1 - 0.5 * abs(offset)
+            let glyph = Cipher.ring[((i % n) + n) % n]
+            let text = g.isSettled && abs(offset) < 0.5 ? String(g.glyph) : String(glyph == " " ? Cipher.spaceMark : glyph)
+            return TextRun(text: text, font: font, colour: g.colour.cgColor(alpha: alpha * weight), x: x, cell: cell, dy: -offset * row)
         }
     }
 

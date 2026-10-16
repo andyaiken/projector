@@ -21,6 +21,16 @@ public struct GlyphState: Equatable, Sendable {
     public var glyph: Character
     /// 0 before the character moves, 1 once it is home.
     public var progress: Double
+    /// On a dial, where it stands on the ring, fractions and all: 12.5 is
+    /// halfway between M and N. `glyph` is the nearest. Nil off a dial, and
+    /// for characters outside the ring.
+    public var dial: Double?
+
+    init(glyph: Character, progress: Double, dial: Double? = nil) {
+        self.glyph = glyph
+        self.progress = progress
+        self.dial = dial
+    }
 
     public var isSettled: Bool { progress >= 1 }
 
@@ -69,6 +79,31 @@ public struct TravelPlan: Equatable, Sendable {
         self.characters = characters
         self.duration = duration
         self.keyLength = shifts.count
+    }
+
+    /// Every character on a dial on frame `f`. A dial turns backwards a full
+    /// turn and its shift, fast at first and slowing to settle on its letter,
+    /// over the same frames the character would otherwise take. Nothing
+    /// random: a dial passes through every glyph between.
+    public func dials(_ f: Int) -> [GlyphState] {
+        let n = Double(Cipher.ring.count)
+        return characters.map { c in
+            guard c.moves, let from = Cipher.ringPosition(c.cipher) else { return GlyphState(glyph: c.plain, progress: 1) }
+            let t = f - c.start
+            let x = min(max(Double(t) / Double(c.total), 0), 1)
+            // Eased out, cubically: a spin that winds down.
+            let left = 1 - x
+            let turned = (Double(c.steps) + n) * (1 - left * left * left)
+            let position = (Double(from) - turned).truncatingRemainder(dividingBy: n)
+            let dial = position < 0 ? position + n : position
+            let nearest = Cipher.ring[Int(dial.rounded()) % Cipher.ring.count]
+            let home = t >= c.total
+            return GlyphState(
+                glyph: home ? c.plain : (nearest == " " ? Cipher.spaceMark : nearest),
+                progress: x,
+                dial: home ? Double(Cipher.ringPosition(c.plain) ?? 0) : dial
+            )
+        }
     }
 
     /// Every character's glyph on frame `f`. A character still in its padding

@@ -454,6 +454,7 @@ final class CueRowView: NSView {
     static func kindGlyph(_ kind: Cue.Kind) -> String {
         switch kind {
         case .title: "\u{2261}"
+        case .anagram: "\u{21C4}"
         case .image: "\u{25A6}"
         case .video: "\u{25B6}"
         case .blank: "\u{25A1}"
@@ -463,6 +464,7 @@ final class CueRowView: NSView {
     var subtitle: String {
         switch cue.content {
         case .title(let c): c.sub
+        case .anagram(let c): c.answer.isEmpty ? "" : "\u{2192} " + c.answer
         case .image(let c): c.src.isEmpty ? "no picture" : ""
         case .video(let c): [c.sub, c.atEnd == .hold ? "" : c.atEnd.rawValue].filter { !$0.isEmpty }.joined(separator: "   ")
         case .blank(let c): c.colour.hex

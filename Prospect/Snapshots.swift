@@ -85,11 +85,26 @@ enum Snapshots {
         save(console, "console-cue-settings", to: directory)
         console.showEditTab(2)
         save(console, "console-show-defaults", to: directory)
+        // A decryption cue whose letters are on dials.
+        let decryption = controller.show.cues[4].id
+        controller.setOverride(.letters, to: .letters(.dials), for: decryption)
+        controller.standBy(decryption)
+        console.showEditTab(1)
+        save(console, "console-cue-settings-decryption", to: directory)
 
         // A cue just added: every field empty, and flagged.
         console.showEditTab(0)
         controller.addCue(.title)
         save(console, "console-new-cue", to: directory)
+
+        // An anagram cue in the editor.
+        if let anagram = controller.addCue(.anagram) {
+            controller.updateCue(anagram, "Change Phrase") { cue in
+                cue.text = "O, Draconian devil! Oh, lame saint!"
+                cue.sub = "Leonardo da Vinci! The Mona Lisa!"
+            }
+            save(console, "console-edit-anagram", to: directory)
+        }
 
         // Prospect › Settings.
         let preferences = PreferencesWindowController()

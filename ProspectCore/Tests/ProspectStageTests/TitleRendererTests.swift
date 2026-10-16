@@ -179,6 +179,28 @@ struct TitleRendererTests {
         #expect(t.scene.isHidden && t.scene.runs.isEmpty)
     }
 
+    @Test("Letters on dials roll through their windows, then settle alone")
+    func dials() throws {
+        let renderer = TitleRenderer(random: SeededRandom(seed: 5), reduceMotion: { true })
+        let s = surface()
+        renderer.mount(on: s)
+        renderer.setVisible(true, on: s)
+        renderer.prepare(titleCue("SOFIA", sub: "THE CRYPTEX", key: "APPLE", overrides: TitleOverrides(letters: .dials)),
+                         defaults: ShowSettings())
+        let t = try #require(tree(renderer, on: s))
+        let layout = try #require(t.layout)
+        #expect(abs(t.title.frame.height - layout.titleLine.height) < 1e-6 && t.title.mask != nil, "a window the height of the line")
+        _ = renderer.frame(-10)
+        #expect(text(of: t.title.runs).count == 5 && t.title.runs.allSatisfy { $0.dy == 0 }, "at rest, the ciphertext alone")
+        _ = renderer.frame(12)
+        #expect(t.title.runs.count > 5, "glyphs on their way in and out as well as letters")
+        #expect(t.title.runs.contains { $0.dy > 0 } && t.title.runs.contains { $0.dy < 0 })
+        render(s).save("title-dials-turning")
+        _ = renderer.frame(1_000)
+        #expect(text(of: t.title.runs) == "SOFIA" && t.title.runs.allSatisfy { $0.dy == 0 })
+        render(s).save("title-dials-settled")
+    }
+
     @Test("A surface mounted mid-cue shows the current frame at once")
     func lateMount() {
         let renderer = TitleRenderer(random: SeededRandom(seed: 2), reduceMotion: { true })

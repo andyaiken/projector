@@ -163,6 +163,9 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
             textLabel.stringValue = "Text"
             subLabel.stringValue = "Subtext"
             set(key, c.key)
+        case .anagram:
+            textLabel.stringValue = "Phrase"
+            subLabel.stringValue = "Answer"
         case .image(let c):
             textLabel.stringValue = "Label"
             mediaLabel.stringValue = "Picture"
@@ -198,9 +201,19 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         case line:
             controller.updateCue(cue.id, "Change Cue Point") { $0.line = value }
         case text:
-            controller.updateCue(cue.id, cue.kind == .title ? "Change Text" : "Change Label") { $0.text = value }
+            let name = switch cue.kind {
+            case .title: "Change Text"
+            case .anagram: "Change Phrase"
+            default: "Change Label"
+            }
+            controller.updateCue(cue.id, name) { $0.text = value }
         case sub:
-            controller.updateCue(cue.id, cue.kind == .title ? "Change Subtext" : "Change Caption") { $0.sub = value }
+            let name = switch cue.kind {
+            case .title: "Change Subtext"
+            case .anagram: "Change Answer"
+            default: "Change Caption"
+            }
+            controller.updateCue(cue.id, name) { $0.sub = value }
         case key:
             controller.updateCue(cue.id, "Change Key") { cue in
                 if case .title(var c) = cue.content { c.key = value; cue.content = .title(c) }

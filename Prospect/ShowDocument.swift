@@ -107,6 +107,7 @@ final class ShowDocument: NSDocument {
             show: initialShow, warnings: initialWarnings, mode: startsInEditMode ? .edit : .show,
             renderers: [
                 .title: TitleRenderer(),
+                .anagram: AnagramRenderer(),
                 .image: ImageRenderer(media: media),
                 .video: VideoRenderer(media: media),
                 .blank: BlankRenderer(),

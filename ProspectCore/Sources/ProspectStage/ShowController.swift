@@ -55,7 +55,8 @@ public final class ShowController {
         warnings: [String] = [],
         mode: Mode = .show,
         renderers: [Cue.Kind: any CueRenderer] = [
-            .title: TitleRenderer(), .image: ImageRenderer(), .video: VideoRenderer(), .blank: BlankRenderer(),
+            .title: TitleRenderer(), .anagram: AnagramRenderer(), .image: ImageRenderer(), .video: VideoRenderer(),
+            .blank: BlankRenderer(),
         ],
         now: @escaping () -> Double = CACurrentMediaTime
     ) {
@@ -316,6 +317,7 @@ public final class ShowController {
         let cue: Cue
         switch kind {
         case .title: cue = Cue(content: .title(TitleContent()))
+        case .anagram: cue = Cue(content: .anagram(AnagramContent()))
         case .image: cue = Cue(content: .image(ImageContent()))
         case .video: cue = Cue(content: .video(VideoContent()))
         case .blank: cue = Cue(content: .blank(BlankContent(text: "")))

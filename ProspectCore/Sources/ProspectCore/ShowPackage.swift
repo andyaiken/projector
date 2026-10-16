@@ -128,7 +128,7 @@ extension Cue {
         switch content {
         case .image(let c): c.src.isEmpty ? nil : c.src
         case .video(let c): c.src.isEmpty ? nil : c.src
-        case .title, .blank: nil
+        case .title, .anagram, .blank: nil
         }
     }
 }

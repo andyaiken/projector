@@ -1,6 +1,6 @@
 # Prospect
 
-Prospect is a native macOS app for running projections in live theatre. Text decrypts out of ciphertext, scene images turn into place tile by tile, and video clips play. An operator fires cues from a console on the Mac's own display while the projector window runs full-screen on a second display.
+Prospect is a native macOS app for running projections in live theatre. Text decrypts out of ciphertext, anagrams rearrange themselves letter by letter, scene images turn into place tile by tile, and video clips play. An operator fires cues from a console on the Mac's own display while the projector window runs full-screen on a second display.
 
 ## Requirements
 
@@ -52,10 +52,10 @@ tools/package.sh             builds the zip and disk image for another Mac
 
 The split follows the spec's architecture, in three layers:
 
-- **ProspectCore** is plain logic: the cue and show model, the cipher and decryption reveal, tile schedules, numbering, the playhead, the tick clock, the `.prospect` package format and the cue sheet rows. Its tests compare its output exactly against recorded outputs.
+- **ProspectCore** is plain logic: the cue and show model, the cipher and decryption reveal, anagram matching, tile schedules, numbering, the playhead, the tick clock, the `.prospect` package format and the cue sheet rows. Its tests compare its output exactly against recorded outputs.
 - **ProspectStage** paints cues into Core Animation layer trees and runs the show. Its pieces:
   - `SurfaceLayer`: a surface to paint into.
-  - One renderer per cue kind: `TitleRenderer`, `ImageRenderer`, `VideoRenderer` and `BlankRenderer`, all conforming to `CueRenderer`.
+  - One renderer per cue kind: `TitleRenderer`, `AnagramRenderer`, `ImageRenderer`, `VideoRenderer` and `BlankRenderer`, all conforming to `CueRenderer`.
   - `StageRunner`: drives the renderers on every tick.
   - `ShowController`: the keys, the playhead, modes and editing.
   - `ProjectorState`: where the projector window goes.

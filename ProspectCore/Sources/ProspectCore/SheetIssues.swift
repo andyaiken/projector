@@ -14,13 +14,19 @@ public enum SheetIssue: Equatable, Sendable {
     case decryptionWithoutPlace(cue: UUID)
     /// Without a key, the text scrambles but was never encrypted.
     case decryptionWithoutKey(cue: UUID)
+    /// An anagram missing one of its two phrases.
+    case anagramWithoutPhrase(cue: UUID)
+    /// The two phrases don't use the same letters, so some fade instead of
+    /// travelling: those only in the first, and those only in the second.
+    case anagramLettersDiffer(cue: UUID, extra: String, missing: String)
 
     /// The cues the console highlights for this issue.
     public var cues: [UUID] {
         switch self {
         case .duplicateNumber(_, let cues): cues
         case .missingNumber(let cue), .continuesPastEnd(let cue), .neverFinishes(let cue), .videoWithoutClip(let cue),
-             .decryptionWithoutPlace(let cue), .decryptionWithoutKey(let cue): [cue]
+             .decryptionWithoutPlace(let cue), .decryptionWithoutKey(let cue), .anagramWithoutPhrase(let cue),
+             .anagramLettersDiffer(let cue, _, _): [cue]
         }
     }
 }
@@ -47,6 +53,14 @@ extension Show {
                     issues.append(.decryptionWithoutPlace(cue: cue.id))
                 } else if t.key.trimmingCharacters(in: .whitespaces).isEmpty {
                     issues.append(.decryptionWithoutKey(cue: cue.id))
+                }
+            }
+            if case .anagram(let a) = cue.content {
+                let (extra, missing) = AnagramPlan.leftovers(from: a.text, to: a.answer)
+                if a.text.trimmingCharacters(in: .whitespaces).isEmpty || a.answer.trimmingCharacters(in: .whitespaces).isEmpty {
+                    issues.append(.anagramWithoutPhrase(cue: cue.id))
+                } else if !extra.isEmpty || !missing.isEmpty {
+                    issues.append(.anagramLettersDiffer(cue: cue.id, extra: extra, missing: missing))
                 }
             }
         }
@@ -76,6 +90,13 @@ extension Show {
             return "\(name(id)) has no text, so nothing will appear."
         case .decryptionWithoutKey(let id):
             return "\(name(id)) has no key, so its text isn\u{2019}t encrypted."
+        case .anagramWithoutPhrase(let id):
+            return "\(name(id)) needs both phrases: the one that appears and the one it rearranges into."
+        case .anagramLettersDiffer(let id, let extra, let missing):
+            func letters(_ s: String) -> String { s.map(String.init).joined(separator: " ") }
+            let parts = [extra.isEmpty ? nil : "only the first phrase has \(letters(extra))",
+                         missing.isEmpty ? nil : "only the answer has \(letters(missing))"].compactMap(\.self)
+            return "\(name(id)) isn\u{2019}t an exact anagram: \(parts.joined(separator: ", and ")). Those letters fade instead of moving."
         }
     }
 }

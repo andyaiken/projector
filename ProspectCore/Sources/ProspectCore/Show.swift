@@ -94,6 +94,7 @@ public struct ShowSettings: Equatable, Sendable {
     public var holdTicks = 44
     public var histogram = true
     public var sceneLine = true
+    public var letters = TitleLetters.cycle
     public var gridColumns = 12
     public var flipMs = 420
     public var order = TileOrder.diagonal
@@ -117,8 +118,13 @@ public struct ShowSettings: Equatable, Sendable {
             waveTicks: o.waveTicks ?? waveTicks,
             holdTicks: o.holdTicks ?? holdTicks,
             histogram: o.histogram ?? histogram,
-            sceneLine: o.sceneLine ?? sceneLine
+            sceneLine: o.sceneLine ?? sceneLine,
+            letters: o.letters ?? letters
         )
+    }
+
+    public func resolved(_ o: AnagramOverrides) -> AnagramSettings {
+        AnagramSettings(clockMs: o.clockMs ?? clockMs, waveTicks: o.waveTicks ?? waveTicks, holdTicks: o.holdTicks ?? holdTicks)
     }
 
     public func resolved(_ o: ImageOverrides) -> ImageSettings {
@@ -141,13 +147,28 @@ public struct TitleSettings: Equatable, Sendable {
     public var holdTicks: Int
     public var histogram: Bool
     public var sceneLine: Bool
+    public var letters: TitleLetters
 
-    public init(clockMs: Int, waveTicks: Int, holdTicks: Int, histogram: Bool, sceneLine: Bool) {
+    public init(clockMs: Int, waveTicks: Int, holdTicks: Int, histogram: Bool, sceneLine: Bool, letters: TitleLetters = .cycle) {
         self.clockMs = clockMs
         self.waveTicks = waveTicks
         self.holdTicks = holdTicks
         self.histogram = histogram
         self.sceneLine = sceneLine
+        self.letters = letters
+    }
+}
+
+/// The settings an anagram cue runs with, once its overrides are applied.
+public struct AnagramSettings: Equatable, Sendable {
+    public var clockMs: Int
+    public var waveTicks: Int
+    public var holdTicks: Int
+
+    public init(clockMs: Int, waveTicks: Int, holdTicks: Int) {
+        self.clockMs = clockMs
+        self.waveTicks = waveTicks
+        self.holdTicks = holdTicks
     }
 }
 
@@ -187,6 +208,9 @@ extension Cue {
         case .title(let c):
             let s = defaults.resolved(c.overrides)
             return CueTiming(clockMs: s.clockMs, holdTicks: s.holdTicks, isInstant: false)
+        case .anagram(let c):
+            let s = defaults.resolved(c.overrides)
+            return CueTiming(clockMs: s.clockMs, holdTicks: s.holdTicks, isInstant: false)
         case .image(let c):
             let s = defaults.resolved(c.overrides)
             return CueTiming(clockMs: s.clockMs, holdTicks: s.holdTicks, isInstant: false)
@@ -216,7 +240,7 @@ extension ClosedRange where Bound == Int {
 
 extension ShowSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case clockMs, waveTicks, holdTicks, histogram, sceneLine, gridColumns, flipMs, order
+        case clockMs, waveTicks, holdTicks, histogram, sceneLine, letters, gridColumns, flipMs, order
         case reveal, transition, fadeMs, textScale, geometry, projector
     }
 
@@ -231,6 +255,7 @@ extension ShowSettings: Codable {
         holdTicks = try int(.holdTicks, d.holdTicks, SettingRange.holdTicks)
         histogram = try c.decodeIfPresent(Bool.self, forKey: .histogram) ?? d.histogram
         sceneLine = try c.decodeIfPresent(Bool.self, forKey: .sceneLine) ?? d.sceneLine
+        letters = try c.decodeIfPresent(TitleLetters.self, forKey: .letters) ?? d.letters
         gridColumns = try int(.gridColumns, d.gridColumns, SettingRange.gridColumns)
         flipMs = try int(.flipMs, d.flipMs, SettingRange.flipMs)
         order = try c.decodeIfPresent(TileOrder.self, forKey: .order) ?? d.order
@@ -249,6 +274,7 @@ extension ShowSettings: Codable {
         try c.encode(holdTicks, forKey: .holdTicks)
         try c.encode(histogram, forKey: .histogram)
         try c.encode(sceneLine, forKey: .sceneLine)
+        try c.encode(letters, forKey: .letters)
         try c.encode(gridColumns, forKey: .gridColumns)
         try c.encode(flipMs, forKey: .flipMs)
         try c.encode(order, forKey: .order)

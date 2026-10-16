@@ -131,7 +131,7 @@ The cue clock is driven by the projector display's display link. While that disp
 
 ## Cue types and rendering
 
-Four cue types, each a `CueRenderer`.
+Five cue types, each a `CueRenderer`.
 
 ### Decryption cues
 
@@ -145,12 +145,24 @@ Rules arrived at by watching the reveal run:
 - An unresolved space draws as `U+2423 OPEN BOX`; a settled one is a real gap. The marker hides word boundaries during the reveal while leaving the final line readable.
 - Characters warm from cold slate to bone as they travel, so meaning arriving is visible per character.
 - The Vigenere key drives the ciphertext and is **never displayed**.
+- **Letters** is cycling or dials, selectable like the image cues' order. Cycling is the reveal above. On **dials**, each letter sits in a window the height of its line, as a cryptex's letters do, and the ring rolls through it: A above B, one glyph sliding out as the next slides in, a little dimmer away from the middle, the window's top and bottom edges softened. A dial turns backwards a full turn and its shift, fast at first and slowing cubically to settle on its letter, over exactly the frames the letter would take cycling, so the cue's timing and the histogram's behaviour don't change. Nothing random is drawn: a dial passes through every glyph between. The positions are worked out by the model; the clock moves them.
 
 Each character is laid out as its own positioned glyph using `CTFontGetAdvancesForGlyphs`, in the system's SF Mono (`NSFont.monospacedSystemFont`, medium weight).
 
 **Decided: the system font, not a bundled one.** It keeps the look the show has been built around and raises no licence question. Coverage of the 45-glyph ring and of `U+2423` at a single advance width is asserted by a unit test; both were checked on macOS 27. macOS updates are installed only deliberately, and the test is rerun after one, so the width shiver cannot creep in.
 
 Beneath the title sits a live letter-frequency histogram against expected English frequency, with `solved`, `key length` and chi-squared readouts. Chi-squared falls as the text resolves, which is what makes it read as cryptanalysis rather than decoration. The bars are scaled against the settled text, not the current frame, and the first paint of a cue lands without animation.
+
+### Anagram cues
+
+A phrase whose letters lift out of line and travel to spell another, as the book's clues do: "O, Draconian devil! Oh, lame saint!" becomes "Leonardo da Vinci! The Mona Lisa!". The cue holds both phrases, the one that appears and the answer.
+
+- Both phrases are set in capitals in the decryption cues' type, one size for both so the letters keep their size as they travel, and each line is centred. A phrase longer than 24 characters splits at the space nearest its middle, as the book sets those two.
+- Letters are matched in reading order: the first A of the phrase goes to the first A of the answer, so no two of the same letter cross. When both phrases are the same words or numbers in a new order, each moves whole instead: 13-3-2-21-1-1-8-5 sorts itself into 1-1-2-3-5-8-13-21 with 13 travelling as 13.
+- A letter heading right arcs over the line and one heading left dips under it, so the two streams pass without touching. The bow is a third of the distance across, between half a line and a line and a half. Each letter warms from slate to bone as it goes.
+- They set off in reading order, a wave apart, but the departures close up to fit within one journey, so every letter has left before the first lands and nothing lands on a letter still waiting to go. A journey is 24 steps of the clock, eased in and out; like a tile's flip, it is an animation with its own duration that the clock only triggers.
+- A character only one phrase has, such as a comma, fades: out of the phrase as its turn comes, or into the answer as the last letters land. Punctuation and spaces may differ freely, but a letter or digit only one phrase has is flagged in the console, since an inexact anagram is usually a typing slip.
+- Hold, clock and wave are set as for the other cues, and text size is shared with decryption cues.
 
 ### Image cues
 
@@ -324,8 +336,8 @@ New shows start in edit mode: they are being written, not run. A show opened fro
 
 Edit mode adds a cue editor beside the projection area. It edits the cue standing by, so clicking a cue in the list opens it.
 
-- **Add Cue**, a pull-down in the console's header in edit mode, adds a Decryption, Image, Video or Blank cue, as the Edit menu's Add items do. The new cue goes in after the standby cue, numbered by the rules below, stands by, and opens in the Cue tab. Its fields start empty. Keeping Add in the header leaves the Cue tab to the cue's own details.
-- Two columns. On the left, what the cue shows: text, subtext and key for a decryption cue; a label and a picture for an image cue; a label, caption, clip and end behaviour for a video cue; a label and colour for a blank. On the right, where it comes in the book: number, cue point and Continue, a menu of When cued, After and When finished, after, each but the first with a seconds field, and When finished disabled for a cue that doesn't take time. Tab moves down the left column, then the right, and round again.
+- **Add Cue**, a pull-down in the console's header in edit mode, adds a Decryption, Anagram, Image, Video or Blank cue, as the Edit menu's Add items do. The new cue goes in after the standby cue, numbered by the rules below, stands by, and opens in the Cue tab. Its fields start empty. Keeping Add in the header leaves the Cue tab to the cue's own details.
+- Two columns. On the left, what the cue shows: text, subtext and key for a decryption cue; the phrase and its answer for an anagram; a label and a picture for an image cue; a label, caption, clip and end behaviour for a video cue; a label and colour for a blank. On the right, where it comes in the book: number, cue point and Continue, a menu of When cued, After and When finished, after, each but the first with a seconds field, and When finished disabled for a cue that doesn't take time. Tab moves down the left column, then the right, and round again.
 - A picture or clip is dropped on the editor or on the cue's row in the list, or chosen with Choose…. Remove takes it off the cue and leaves the file in the package.
 - In edit mode each row in the cue list has a delete button and a grip at its right. Dragging a row by its grip moves the cue, its number with it, with a brass line showing where it will land; the list scrolls if the pointer reaches its edge. Delete removes the cue at once, without asking: both are one step of undo, and the Cue tab keeps to the cue's own details.
 - Edit › Renumber All Cues… asks first, with Cancel as the default. It is a menu item rather than a button in the editor, so it is never one stray click away.
@@ -384,7 +396,7 @@ These are not cosmetic. A cue sheet is read on a music stand under a single lamp
 
 **Decided: build both.** A second layout, chosen in the print panel, for the projection operator rather than the DSM.
 
-Same one row per cue in running order, different columns: cue number, type, content, and the settings that cue runs with once its overrides are applied to the show defaults. For a decryption cue that is the hold, clock and wave, and whether the histogram and subtext are on. For an image cue it is the hold, clock, wave, grid, flip duration, order and reveal. For a video cue it is the end behaviour, and for a blank cue its colour. Every cue also lists its transition in: the style, and the fade time when it fades; and a cue that continues says when. A value the cue overrides is marked, so a setting changed for one cue is not mistaken for the show default.
+Same one row per cue in running order, different columns: cue number, type, content, and the settings that cue runs with once its overrides are applied to the show defaults. For a decryption cue that is the hold, clock and wave, whether the histogram and subtext are on, and its letters. For an anagram it is the hold, clock and wave. For an image cue it is the hold, clock, wave, grid, flip duration, order and reveal. For a video cue it is the end behaviour, and for a blank cue its colour. Every cue also lists its transition in: the style, and the fade time when it fades; and a cue that continues says when. A value the cue overrides is marked, so a setting changed for one cue is not mistaken for the show default.
 
 It is a tech-week document. It exists so settings dialled in on the rig can be written down, checked against, and restored if a document is ever lost or rebuilt. It carries no cue points, because an operator reading settings is not the operator waiting for a line.
 
@@ -398,9 +410,10 @@ A `Cue` is a struct with an enum payload per kind, so an invalid combination can
 | --- | --- | --- |
 | `id` | all | A UUID, never shown. The identity used by undo, the playhead and the crash record, since numbers may be duplicated |
 | `num` | all | String, not an integer. `9.5` and `P12` are both valid |
-| `kind` | all | `title` (a decryption cue), `image`, `video` or `blank` |
+| `kind` | all | `title` (a decryption cue), `anagram`, `image`, `video` or `blank` |
 | `line` | all | The cue point: the spoken line or action to wait for |
-| `text` | all | Text on a decryption cue, label on an image or video cue |
+| `text` | all | Text on a decryption cue, the phrase that appears on an anagram, label on an image or video cue |
+| `answer` | anagram | The phrase an anagram's letters rearrange into. A missing phrase, or letters only one of them has, is flagged in the console |
 | `sub` | title, video | Subtext on a decryption cue, caption on a video cue. An image cue has none |
 | `key` | title | Vigenere key. Drives the ciphertext; never shown on stage or in the cue list. A decryption cue with no key, or no text, is flagged in the console |
 | `src` | image, video | Relative path inside the package. Empty on an image cue shows the cue's label on black; empty on a video cue is an error flagged in the console |
@@ -408,7 +421,7 @@ A `Cue` is a struct with an enum payload per kind, so an invalid combination can
 | `atEnd` | video | hold, black or loop. Default hold |
 | `continue` | all | What happens after this cue: absent for when cued; `{"after": 5}` for seconds after it fires; `{"finished": 2}` for seconds after it finishes. Flagged in the console on the last cue, or on a looping clip set to continue when finished |
 | `transition` | all | The cue's own transition in, overriding the show's: a style, `snap` or `fade`, a fade time in milliseconds, or both. Absent means the show's default |
-| `overrides` | title, image | This cue's values for settings the show holds defaults for. Absent means inherit. Decryption: clock, wave, hold, histogram, subtext. Image: clock, wave, hold, grid, flip, order, reveal by |
+| `overrides` | title, anagram, image | This cue's values for settings the show holds defaults for. Absent means inherit. Decryption: clock, wave, hold, histogram, subtext, letters. Anagram: clock, wave, hold. Image: clock, wave, hold, grid, flip, order, reveal by |
 
 ### Show defaults and overrides
 
@@ -416,7 +429,7 @@ A `Cue` is a struct with an enum payload per kind, so an invalid combination can
 
 In edit mode the panels beneath the preview are tabs: Cue, Cue Settings, Show Defaults and Projection Area.
 
-- **Show Defaults** has three groups side by side: timing (clock, wave, hold), decryption cues (text size, histogram, subtext) and image cues (grid, flip, order, reveal by), with transitions (style, fade time) beneath, each setting with its own range and step. A change applies when a cue next runs, except text size, which refits a title on stage at once.
+- **Show Defaults** has three groups side by side: timing (clock, wave, hold), decryption cues (text size, histogram, subtext, letters) and image cues (grid, flip, order, reveal by), with transitions (style, fade time) beneath, each setting with its own range and step. A change applies when a cue next runs, except text size, which refits a title on stage at once.
 - **Cue Settings** shows what the cue standing by runs with, in the same groups. Values the cue sets itself are in brass, each with a Reset that puts it back on the show's default. A video or blank cue has only its transition in here: a video plays on its own clock and a blank is instant.
 - A slider drag is one step of undo, however far it moves.
 - The console, the printed operator sheet and the panels word every setting the same way, from one definition of each. That definition also explains each setting, shown when the pointer rests on it, and the panels explain clock, wave and hold together: timing is counted in steps of the clock. A hold reads in steps and in seconds, as "44 · 1.9 s", on screen and on paper.
@@ -453,7 +466,7 @@ The menu bar adds what macOS users will look for, and nothing that duplicates a 
 | Menu | Items |
 | --- | --- |
 | File | New, Open, Open Recent, Save, Duplicate, Print Cue Sheet, Export Cue Sheet as PDF, Remove Unused Media |
-| Edit | Undo, Redo, Cut, Copy, Paste, plus Add Decryption Cue, Add Image Cue, Add Video Cue, Add Blank Cue, and Renumber All Cues |
+| Edit | Undo, Redo, Cut, Copy, Paste, plus Add Decryption Cue, Add Anagram Cue, Add Image Cue, Add Video Cue, Add Blank Cue, and Renumber All Cues |
 | Show | Enter Show Mode, Enter Edit Mode, Open Projector (Close Projector while it is open), Choose Projector Display, Blackout |
 | Window | Console, Projector, standard items |
 
