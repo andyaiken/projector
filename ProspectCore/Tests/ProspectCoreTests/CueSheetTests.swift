@@ -47,7 +47,7 @@ struct CueSheetTests {
         #expect(title.map(\.value) == ["30 ms", "3", "none", "on", "on", "fade through black", "0.5 s"])
         #expect(title.map(\.overridden) == [true, false, false, false, false, false, false])
         let image = sheet.rows[1].settings
-        #expect(image.map(\.name) == ["Clock", "Wave", "Hold", "Grid", "Flip", "Order", "Picture", "Transition", "Fade", "Continue"])
+        #expect(image.map(\.name) == ["Clock", "Wave", "Hold", "Grid", "Flip", "Order", "Reveal by", "Picture", "Transition", "Fade", "Continue"])
         #expect(image.last == .init(name: "Continue", value: "when finished", overridden: false))
         #expect(image.first { $0.name == "Grid" } == .init(name: "Grid", value: "20 wide", overridden: true))
         #expect(image.first { $0.name == "Order" }?.value == "random")

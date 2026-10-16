@@ -97,9 +97,9 @@ final class GoButton: NSButton {
     }
 }
 
-/// Show or edit: two segments in the desk's own colours, with Edit in brass
-/// when it's on, so an unlocked sheet is plain at a glance. Clicked, never
-/// keyed: it doesn't take the keyboard, so Space can't flip it.
+/// Show or edit: two segments in the desk's own colours, with whichever is
+/// on in brass. Clicked, never keyed: it doesn't take the keyboard, so Space
+/// can't flip it.
 final class ModeSwitch: NSControl {
     var isEditing = false {
         didSet { if isEditing != oldValue { needsDisplay = true } }
@@ -142,12 +142,12 @@ final class ModeSwitch: NSControl {
 
         let half = box.width / 2
         let selected = NSRect(x: box.minX + (isEditing ? half : 0), y: box.minY, width: half, height: box.height).insetBy(dx: 2, dy: 2)
-        (isEditing ? Desk.brass : Desk.lineBright).setFill()
+        Desk.brass.setFill()
         NSBezierPath(roundedRect: selected, xRadius: 3, yRadius: 3).fill()
 
         for (i, label) in Self.labels.enumerated() {
             let on = (i == 1) == isEditing
-            let colour = on ? (isEditing ? Desk.rgb(0x15, 0x12, 0x0B) : Desk.text) : Desk.dim
+            let colour = on ? Desk.rgb(0x15, 0x12, 0x0B) : Desk.dim
             let text = NSAttributedString(string: label, attributes: [.font: Self.font, .foregroundColor: colour, .kern: 0.8])
             let size = text.size()
             text.draw(at: NSPoint(x: box.minX + CGFloat(i) * half + (half - size.width) / 2 + 0.4, y: (bounds.height - size.height) / 2))
@@ -170,9 +170,8 @@ final class HeaderView: PanelView {
 
     init() {
         super.init(fill: Desk.raised)
-        wordmark.attributedStringValue = NSAttributedString(string: "Prospect", attributes: [
-            .font: Desk.mono(14), .foregroundColor: Desk.text, .kern: 1.4,
-        ])
+        wordmark.attributedStringValue = Self.wordmarkText(Self.name.map { ($0, 1) })
+        wordmark.setAccessibilityLabel(Self.name)
         openProjector.bezelStyle = .rounded
         openProjector.refusesFirstResponder = true
         // A pull-down's first item is its title; the kinds follow.
@@ -228,6 +227,75 @@ final class HeaderView: PanelView {
         centre(lamp, x: right - lampWidth)
         lampDot.frame = NSRect(x: lamp.frame.minX - 14, y: (h - 7) / 2, width: 7, height: 7)
     }
+
+    // MARK: The wordmark
+
+    private static let name = "PROSPECT"
+    /// Frames of ciphertext before any letter moves, and how long a frame is.
+    private static let hold = 20
+    private static let frameSeconds: TimeInterval = 0.05
+
+    private var reveal: TravelPlan?
+    private var revealFrame = 0
+    private var revealRandom = SystemUnitRandom()
+    private var revealTimer: Timer?
+
+    /// Decrypts the wordmark the way a title cue decrypts on stage: a moment
+    /// of ciphertext, then each letter cycling home, warming as it goes.
+    /// Not at all under reduced motion.
+    func decryptWordmark() {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        startReveal(at: -Self.hold)
+        let timer = Timer(timeInterval: Self.frameSeconds, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showReveal(at: (self?.revealFrame ?? 0) + 1) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        revealTimer = timer
+    }
+
+    private func startReveal(at frame: Int) {
+        revealTimer?.invalidate()
+        revealTimer = nil
+        // The key never shows, on stage or here. Its shifts, 5, 8, 1, 13, 13,
+        // 0, 2, 2, 8, are mostly Fibonacci numbers, for anyone who looks.
+        reveal = TravelPlan(text: Self.name, key: "FIBONACCI", wave: 3, random: &revealRandom)
+        showReveal(at: frame)
+    }
+
+    /// Frames up to 0 are the ciphertext; from the plan's duration on, the
+    /// name itself, and the reveal is over.
+    private func showReveal(at frame: Int) {
+        guard let plan = reveal else { return }
+        revealFrame = frame
+        wordmark.attributedStringValue = Self.wordmarkText(plan.frame(max(0, frame), random: &revealRandom).map { ($0.glyph, $0.progress) })
+        if frame >= plan.duration {
+            revealTimer?.invalidate()
+            revealTimer = nil
+            reveal = nil
+        }
+    }
+
+    /// The glyphs in the wordmark's own case, each coloured by how far home
+    /// it is: from the ciphertext's slate to the desk's text colour, eased as
+    /// the stage's warming is.
+    private static func wordmarkText(_ glyphs: [(glyph: Character, progress: Double)]) -> NSAttributedString {
+        let text = NSMutableAttributedString()
+        for (glyph, letter) in zip(glyphs, name) {
+            let p = min(max(glyph.progress, 0), 1), e = p * p * (3 - 2 * p)
+            func mix(_ cold: UInt8, _ warm: Int) -> Int { Int((Double(cold) + (Double(warm) - Double(cold)) * e).rounded()) }
+            let colour = Desk.rgb(mix(Palette.slate.r, 0xCF), mix(Palette.slate.g, 0xD4), mix(Palette.slate.b, 0xDE))
+            let shown = letter.isLowercase ? String(glyph.glyph).lowercased() : String(glyph.glyph)
+            text.append(NSAttributedString(string: shown, attributes: [.font: Desk.mono(14), .foregroundColor: colour, .kern: 1.4]))
+        }
+        return text
+    }
+
+    #if DEBUG
+    /// The wordmark held on one frame of a fresh reveal, for snapshots.
+    func holdWordmark(atFrame frame: Int) {
+        startReveal(at: frame)
+    }
+    #endif
 }
 
 // MARK: - Standby

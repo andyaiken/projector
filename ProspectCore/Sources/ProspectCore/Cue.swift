@@ -211,14 +211,17 @@ public struct ImageOverrides: Codable, Equatable, Sendable {
     public var gridColumns: Int?
     public var flipMs: Int?
     public var order: TileOrder?
+    public var reveal: TileReveal?
 
-    public init(clockMs: Int? = nil, waveTicks: Int? = nil, holdTicks: Int? = nil, gridColumns: Int? = nil, flipMs: Int? = nil, order: TileOrder? = nil) {
+    public init(clockMs: Int? = nil, waveTicks: Int? = nil, holdTicks: Int? = nil, gridColumns: Int? = nil, flipMs: Int? = nil,
+                order: TileOrder? = nil, reveal: TileReveal? = nil) {
         self.clockMs = clockMs
         self.waveTicks = waveTicks
         self.holdTicks = holdTicks
         self.gridColumns = gridColumns
         self.flipMs = flipMs
         self.order = order
+        self.reveal = reveal
     }
 
     public var isEmpty: Bool { self == ImageOverrides() }

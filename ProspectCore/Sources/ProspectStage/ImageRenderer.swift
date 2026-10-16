@@ -2,13 +2,15 @@ import AppKit
 import ProspectCore
 import QuartzCore
 
-/// Image cues: a photograph arriving as a grid of flipping tiles.
+/// Image cues: a photograph arriving as a grid of tiles that flip over, or
+/// sharpen.
 ///
 /// Each tile is a 3D layer with two faces. The back shows the average colour
 /// of the picture behind it, pulled toward the cold slate, so the opening
 /// state is a colour-blocked hint of the image; the front shows its share of
-/// the picture. The clock only says when each tile starts; the flip itself
-/// is a Core Animation animation with its own duration.
+/// the picture. The clock says when each tile starts. A flip is a Core
+/// Animation animation with its own duration; a sharpen steps through ever
+/// finer blocks of the picture on the clock's frames, over the same time.
 @MainActor
 public final class ImageRenderer: CueRenderer, ReportsProblems {
     public let isInstant = false
@@ -42,6 +44,9 @@ public final class ImageRenderer: CueRenderer, ReportsProblems {
         let backColours: [RGB]
         let flipFrames: Int
         let flipDuration: CFTimeInterval
+        let reveal: TileReveal
+        /// For a sharpen: the picture in ever finer blocks, coarsest first.
+        let levels: [CGImage]
         var settleFrame: Int { schedule.lastStart + flipFrames }
     }
 
@@ -223,7 +228,9 @@ public final class ImageRenderer: CueRenderer, ReportsProblems {
             schedule: schedule,
             backColours: Self.backColours(of: image, grid: grid),
             flipFrames: schedule.settleFrame(flipMs: settings.flipMs, clockMs: settings.clockMs) - schedule.lastStart,
-            flipDuration: CFTimeInterval(settings.flipMs) / 1000
+            flipDuration: CFTimeInterval(settings.flipMs) / 1000,
+            reveal: settings.reveal,
+            levels: settings.reveal == .sharpen ? Self.sharpeningLevels(of: image, grid: grid) : []
         )
         for tree in trees.values {
             build(tree)
@@ -254,6 +261,34 @@ public final class ImageRenderer: CueRenderer, ReportsProblems {
                                                                    columns: grid.columns, rows: grid.rows))
     }
 
+    /// The steps a tile sharpens through: its part of the picture as one
+    /// block, then 2 x 2, 3 x 3, 5 x 5, 8 x 8 and on through the Fibonacci
+    /// numbers while a block is still at least two of the picture's pixels
+    /// across. Each level is drawn down from the next finer one.
+    static func sharpeningLevels(of image: CGImage, grid: TileGrid) -> [CGImage] {
+        let tilePixels = Double(image.width) / Double(grid.columns)
+        var counts: [Int] = []
+        var (blocks, next) = (1, 2)
+        while Double(blocks * 2) <= tilePixels, blocks <= 512 {
+            counts.append(blocks)
+            (blocks, next) = (next, blocks + next)
+        }
+        var levels: [CGImage] = []
+        var source = image
+        for blocks in counts.reversed() {
+            let w = grid.columns * blocks, h = grid.rows * blocks
+            guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+            ctx.interpolationQuality = .high
+            ctx.draw(source, in: CGRect(x: 0, y: 0, width: w, height: h))
+            guard let level = ctx.makeImage() else { return [] }
+            levels.insert(level, at: 0)
+            source = level
+        }
+        return levels
+    }
+
     // MARK: Tiles
 
     private func build(_ tree: Tree) {
@@ -262,6 +297,7 @@ public final class ImageRenderer: CueRenderer, ReportsProblems {
         let grid = plan.schedule.grid
         tree.tiles = (0..<grid.count).map { i in
             let tile = TileLayer()
+            tile.picture = plan.image
             tile.front.contents = plan.image
             tile.front.contentsRect = Self.contentsRect(column: i % grid.columns, row: i / grid.columns, of: grid)
             tile.back.backgroundColor = plan.backColours[i].cgColor
@@ -285,7 +321,22 @@ public final class ImageRenderer: CueRenderer, ReportsProblems {
                 if f >= start + plan.flipFrames {
                     tile.finish()
                 } else if f >= start {
-                    tile.flip(duration: plan.flipDuration, animated: animated)
+                    switch plan.reveal {
+                    case .flip:
+                        tile.flip(duration: plan.flipDuration, animated: animated)
+                    case .sharpen:
+                        // Each level in turn, spread across the tile's time,
+                        // and each for a frame at least: a time too short for
+                        // them all leaves out the finest, the least missed.
+                        let shown = min(plan.levels.count, plan.flipFrames)
+                        let progress = Double(f - start) / Double(max(plan.flipFrames, 1))
+                        let step = Int(progress * Double(shown))
+                        if animated, step < shown {
+                            tile.sharpen(to: plan.levels[step])
+                        } else {
+                            tile.finish()
+                        }
+                    }
                 }
             }
         }
@@ -305,6 +356,8 @@ final class TileLayer: CATransformLayer {
 
     let front = StillLayer()
     let back = StillLayer()
+    /// The tile's share of the picture, which the front shows when done.
+    var picture: CGImage?
     private(set) var state = State.waiting
 
     override init() {
@@ -357,11 +410,27 @@ final class TileLayer: CATransformLayer {
         add(turn, forKey: "flip")
     }
 
+    /// One step of a sharpen: the front, square on, showing the picture in
+    /// blocks, kept crisp rather than smoothed.
+    func sharpen(to level: CGImage) {
+        guard state != .done else { return }
+        state = .flipping
+        front.isHidden = false
+        back.isHidden = true
+        setValue(0.0, forKeyPath: "transform.rotation.y")
+        front.contents = level
+        front.magnificationFilter = .nearest
+    }
+
     func finish() {
         guard state != .done else { return }
         state = .done
         front.isHidden = false
         back.isHidden = true
         setValue(0.0, forKeyPath: "transform.rotation.y")
+        if let picture {
+            front.contents = picture
+            front.magnificationFilter = .linear
+        }
     }
 }

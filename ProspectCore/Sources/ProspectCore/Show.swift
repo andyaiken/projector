@@ -97,6 +97,7 @@ public struct ShowSettings: Equatable, Sendable {
     public var gridColumns = 12
     public var flipMs = 420
     public var order = TileOrder.diagonal
+    public var reveal = TileReveal.flip
     /// How the stage changes to each cue, and how long each fade takes.
     public var transition = Transition.standard.style
     public var fadeMs = Transition.standard.fadeMs
@@ -127,7 +128,8 @@ public struct ShowSettings: Equatable, Sendable {
             holdTicks: o.holdTicks ?? holdTicks,
             gridColumns: o.gridColumns ?? gridColumns,
             flipMs: o.flipMs ?? flipMs,
-            order: o.order ?? order
+            order: o.order ?? order,
+            reveal: o.reveal ?? reveal
         )
     }
 }
@@ -157,14 +159,16 @@ public struct ImageSettings: Equatable, Sendable {
     public var gridColumns: Int
     public var flipMs: Int
     public var order: TileOrder
+    public var reveal: TileReveal
 
-    public init(clockMs: Int, waveTicks: Int, holdTicks: Int, gridColumns: Int, flipMs: Int, order: TileOrder) {
+    public init(clockMs: Int, waveTicks: Int, holdTicks: Int, gridColumns: Int, flipMs: Int, order: TileOrder, reveal: TileReveal = .flip) {
         self.clockMs = clockMs
         self.waveTicks = waveTicks
         self.holdTicks = holdTicks
         self.gridColumns = gridColumns
         self.flipMs = flipMs
         self.order = order
+        self.reveal = reveal
     }
 }
 
@@ -213,7 +217,7 @@ extension ClosedRange where Bound == Int {
 extension ShowSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case clockMs, waveTicks, holdTicks, histogram, sceneLine, gridColumns, flipMs, order
-        case transition, fadeMs, textScale, geometry, projector
+        case reveal, transition, fadeMs, textScale, geometry, projector
     }
 
     public init(from decoder: Decoder) throws {
@@ -230,6 +234,7 @@ extension ShowSettings: Codable {
         gridColumns = try int(.gridColumns, d.gridColumns, SettingRange.gridColumns)
         flipMs = try int(.flipMs, d.flipMs, SettingRange.flipMs)
         order = try c.decodeIfPresent(TileOrder.self, forKey: .order) ?? d.order
+        reveal = try c.decodeIfPresent(TileReveal.self, forKey: .reveal) ?? d.reveal
         transition = try c.decodeIfPresent(TransitionStyle.self, forKey: .transition) ?? d.transition
         fadeMs = try int(.fadeMs, d.fadeMs, SettingRange.fadeMs)
         textScale = try int(.textScale, d.textScale, SettingRange.textScale)
@@ -247,6 +252,7 @@ extension ShowSettings: Codable {
         try c.encode(gridColumns, forKey: .gridColumns)
         try c.encode(flipMs, forKey: .flipMs)
         try c.encode(order, forKey: .order)
+        try c.encode(reveal, forKey: .reveal)
         try c.encode(transition, forKey: .transition)
         try c.encode(fadeMs, forKey: .fadeMs)
         try c.encode(textScale, forKey: .textScale)

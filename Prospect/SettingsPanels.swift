@@ -75,7 +75,7 @@ final class SettingRow: NSView {
         switch v {
         case .number(let n): slider?.integerValue = n
         case .flag(let on): toggle?.state = on ? .on : .off
-        case .order, .style: popup?.selectItem(at: key.choiceIndex(of: v) ?? 0)
+        case .order, .reveal, .style: popup?.selectItem(at: key.choiceIndex(of: v) ?? 0)
         }
         value.stringValue = key.format(v)
         value.textColor = overridden == true ? Desk.brass : (overridden == false ? Desk.dim : Desk.text)
@@ -234,7 +234,8 @@ final class ShowDefaultsPanel: PanelView, NSTextFieldDelegate {
         note.frame = NSRect(x: x, y: bottom + 6, width: inner, height: Desk.height(of: note, width: inner))
         // Beside Transitions, in the second line's empty columns.
         let columnWidth = (inner - gap * 2) / 3
-        let secondLine = Self.groupsTop + SettingGroups.headingHeight + 3 * SettingGroups.rowPitch + SettingGroups.lineGap
+        let firstLineRows = CGFloat(groups.prefix(SettingGroups.perLine).map(\.rows.count).max() ?? 0)
+        let secondLine = Self.groupsTop + SettingGroups.headingHeight + firstLineRows * SettingGroups.rowPitch + SettingGroups.lineGap
         let noteX = x + columnWidth + gap, noteWidth = columnWidth * 2 + gap
         timingHeading.frame = NSRect(x: noteX, y: secondLine, width: noteWidth, height: 16)
         timingNote.frame = NSRect(x: noteX, y: secondLine + SettingGroups.headingHeight, width: noteWidth,
@@ -311,9 +312,9 @@ final class CueSettingsPanel: PanelView {
         }
     }
 
-    /// Room for the most a cue can set: three groups of three, and the note.
+    /// Room for the most a cue can set, an image cue's groups, and the note.
     var preferredHeight: CGFloat {
-        46 + SettingGroups.height(of: [3, 3, 3]) + 10 + 54 + 12
+        46 + SettingGroups.height(of: [3, 4, 2]) + 10 + 54 + 12
     }
 
     override func layout() {

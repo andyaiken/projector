@@ -24,6 +24,15 @@ private let media: URL = {
     let png = NSBitmapImageRep(cgImage: ctx.makeImage()!).representation(using: .png, properties: [:])!
     try! png.write(to: folder.appendingPathComponent("quadrants.png"))
     try! Data("not a picture".utf8).write(to: folder.appendingPathComponent("broken.png"))
+    // And a 400 x 200 gradient, black at the left to white at the right,
+    // with detail inside every tile for sharpening to show.
+    let gradient = CGContext(data: nil, width: 400, height: 200, bitsPerComponent: 8, bytesPerRow: 0,
+                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    gradient.drawLinearGradient(CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                           colors: [CGColor(gray: 0, alpha: 1), CGColor(gray: 1, alpha: 1)] as CFArray, locations: [0, 1])!,
+                                start: .zero, end: CGPoint(x: 400, y: 0), options: [])
+    try! NSBitmapImageRep(cgImage: gradient.makeImage()!).representation(using: .png, properties: [:])!
+        .write(to: folder.appendingPathComponent("gradient.png"))
     return folder
 }()
 
@@ -53,6 +62,72 @@ struct ImageRendererTests {
             }
             renderer.prepare(cue, defaults: defaults)
         }
+    }
+
+    @Test("Sharpening steps each tile through finer and finer blocks, then the picture")
+    func sharpens() async throws {
+        var defaults = ShowSettings()
+        defaults.reveal = .sharpen
+        await prepare(imageCue("quadrants.png"), defaults: defaults)
+        let plan = try #require(renderer.plan)
+        // 400 pixels across four tiles: 1, 2, 3, 5 and on to 34 blocks a
+        // tile, never smaller than two pixels.
+        #expect(plan.levels.map(\.width) == [1, 2, 3, 5, 8, 13, 21, 34].map { $0 * 4 })
+        let tiles = try #require(renderer.tree(for: live)?.tiles)
+        let start = plan.schedule.starts[0]
+        _ = renderer.frame(start)
+        #expect(tiles[0].state == .flipping)
+        #expect((tiles[0].front.contents as! CGImage) === plan.levels[0], "the coarsest blocks first")
+        #expect(tiles[0].front.magnificationFilter == .nearest, "blocks stay square")
+        #expect(tiles[0].animation(forKey: "flip") == nil, "no turning")
+        _ = renderer.frame(start + plan.flipFrames / 2)
+        #expect((tiles[0].front.contents as! CGImage).width > plan.levels[0].width, "finer by halfway")
+        _ = renderer.frame(plan.settleFrame)
+        #expect(tiles.allSatisfy { $0.state == .done && ($0.front.contents as! CGImage) === plan.image })
+        #expect(tiles.allSatisfy { $0.front.magnificationFilter == .linear }, "the picture itself, smooth")
+    }
+
+    @Test("A flip too short for every step still shows the coarse ones, a frame each, and leaves out the finest")
+    func shortSharpen() async throws {
+        var defaults = ShowSettings()
+        defaults.reveal = .sharpen
+        defaults.flipMs = 150
+        await prepare(imageCue("quadrants.png"), defaults: defaults)
+        let plan = try #require(renderer.plan)
+        let tiles = try #require(renderer.tree(for: live)?.tiles)
+        #expect(plan.flipFrames == 4 && plan.levels.count == 8)
+        let start = plan.schedule.starts[0]
+        let shown = (start..<start + plan.flipFrames).map { f in
+            _ = renderer.frame(f)
+            return plan.levels.firstIndex { $0 === (tiles[0].front.contents as! CGImage) }
+        }
+        #expect(shown == [0, 1, 2, 3])
+    }
+
+    @Test("A sharpening tile shows crisp blocks of its part of the picture, coarsest first")
+    func sharpeningBlocks() async throws {
+        var defaults = ShowSettings()
+        defaults.reveal = .sharpen
+        await prepare(imageCue("gradient.png"), defaults: defaults)
+        let plan = try #require(renderer.plan)
+        let tiles = try #require(renderer.tree(for: live)?.tiles)
+        let start = plan.schedule.starts[0]
+        // The top-left tile, at its first step: one flat block.
+        _ = renderer.frame(start)
+        let one = renderFace(tiles[0].front, size: 200)
+        one.save("image-sharpening-1")
+        #expect(one.pixel(x: 20, y: 30) == one.pixel(x: 180, y: 170), "one block")
+        // Its second step: two blocks across, each flat, darker on the left.
+        let second = start + Int((Double(plan.flipFrames) / Double(min(plan.levels.count, plan.flipFrames))).rounded(.up))
+        _ = renderer.frame(second)
+        #expect((tiles[0].front.contents as! CGImage) === plan.levels[1])
+        let two = renderFace(tiles[0].front, size: 200)
+        two.save("image-sharpening-2")
+        let left = two.pixel(x: 20, y: 100), alsoLeft = two.pixel(x: 90, y: 30)
+        let right = two.pixel(x: 110, y: 100), alsoRight = two.pixel(x: 180, y: 170)
+        #expect(left == alsoLeft && right == alsoRight, "flat within each block: \(left) \(alsoLeft) \(right) \(alsoRight)")
+        #expect(left.r < one.pixel(x: 100, y: 100).r && one.pixel(x: 100, y: 100).r < right.r,
+                "darker to the left, as the picture is, either side of the one block")
     }
 
     @Test("A picture is decoded off the main thread and cut into tiles")
@@ -199,6 +274,21 @@ struct ImageRendererTests {
         let grid = TileGrid(imageWidth: 400, imageHeight: 200, columns: 4)
         #expect(ImageRenderer.contentsRect(column: 0, row: 0, of: grid) == CGRect(x: 0, y: 0.5, width: 0.25, height: 0.5))
         #expect(ImageRenderer.contentsRect(column: 3, row: 1, of: grid) == CGRect(x: 0.75, y: 0, width: 0.25, height: 0.5))
+    }
+
+    /// Renders one face on its own, flat and square, as its filter draws it.
+    private func renderFace(_ face: CALayer, size: Int) -> Bitmap {
+        let flat = CALayer()
+        flat.frame = CGRect(x: 0, y: 0, width: size, height: size)
+        flat.contents = face.contents
+        flat.contentsRect = face.contentsRect
+        flat.magnificationFilter = face.magnificationFilter
+        let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        // Offscreen rendering samples by the context, not the layer's filter.
+        if face.magnificationFilter == .nearest { ctx.interpolationQuality = .none }
+        flat.render(in: ctx)
+        return Bitmap(context: ctx, width: size, height: size)
     }
 
     /// Renders one face on its own, flat, and reads its middle pixel.

@@ -103,6 +103,8 @@ Two windows: the console and the projector. Both are real `NSWindow`s, which rem
 
 Standard resizable window on the operator's screen. Its title shows the show name and the current cue number. It holds the cue list, the standby panel, GO, the keyboard reference and a live preview of the projector, rendered by the same renderers into a second surface. In edit mode it adds the projection area: width, height and offsets, alignment guides, and Fill the Output.
 
+When the console first opens, the Prospect wordmark in its header decrypts the way a title cue does: a moment of ciphertext, then each letter cycling home and warming from slate to the desk's text colour, in under two seconds. It runs once per window, and not at all with Reduce Motion on.
+
 Nothing in the console takes keyboard focus except the Go-to field, so the show keys always reach the show. A focused button would be pressed by Space as well, firing twice, and a focused slider would take the arrow keys from the standby cue. Return or Escape in the Go-to field hands the keyboard straight back.
 
 ### Projector window
@@ -152,15 +154,17 @@ Beneath the title sits a live letter-frequency histogram against expected Englis
 
 ### Image cues
 
-A photograph arrives as a grid of flipping tiles, four to twenty-eight across.
+A photograph arrives as a grid of tiles, four to twenty-eight across, each flipping over or sharpening into place.
 
 This is what Core Animation is for. One `CALayer` per tile, `transform.rotation.y` driven by a `CABasicAnimation`, `isDoubleSided` false on each face, and `m34` on the sublayer transform for perspective. Around eighty layers is trivial and GPU-composited, so it will run more smoothly than the CSS version does.
 
 - The unflipped face carries the **average colour of the image behind it**, pulled two-thirds toward the cold slate. Draw the image once into a `CGContext` at sixteen pixels a tile, without interpolation, and average each tile's block. A smoothing filter would bleed each tile's neighbours into its average. No cross-origin problem, no tainted canvas, no fallback path.
 - Tile edges land on whole device pixels, so neighbouring tiles meet exactly. Between pixels they could leave a hairline of the black output showing through the picture.
-- Order is a diagonal sweep or random, selectable. Random shuffles the order and paces the starts evenly; independent random starts look like rainfall, with clumps and stragglers.
-- Both orders span the same duration, so switching does not change cue timing.
+- Order is a diagonal sweep, random or a golden spiral, selectable. Random shuffles the order and paces the starts evenly; independent random starts look like rainfall, with clumps and stragglers.
+- **The golden spiral** cuts the grid into squares the way a Fibonacci rectangle is cut: the largest square off one side, then the largest off the next side round, clockwise, until nothing is left. An 8 x 5 grid, which is what eight columns make of a 16:9 or 16:10 picture, gives squares of 5, 3, 2, 1 and 1; 13 x 8 gives 8, 5, 3, 2, 1 and 1. The spiral turns a quarter in each square, about the corner where it meets the rest, so it runs from square to square without a break. The reveal starts at the spiral's eye and goes outward, each square swept like a clock hand, so tiles in line with the corner start together. Pacing follows the spiral's length, which in each square is in proportion to its side, so the curve is traced at one speed. Other grids cut just as cleanly, but the spiral sometimes has to skip a side.
+- Every order spans the same duration, so switching does not change cue timing.
 - The flip is an animation with its own duration; the clock only triggers each tile.
+- **Reveal by** is flipping or sharpening, selectable like the order. A sharpening tile stays square on and steps, over the same time a flip takes, from its flat colour through its part of the picture as one block, then 2 x 2, 3 x 3, 5 x 5, 8 x 8 and on through the Fibonacci numbers, until a block would be smaller than two of the picture's pixels; then the picture itself. Each step is drawn down from the next finer one. The blocks are drawn crisp, not smoothed, and the steps fall on the clock's frames, each for a frame at least; a flip too short for every step leaves out the finest, which are the least missed.
 
 ### Video cues
 
@@ -380,7 +384,7 @@ These are not cosmetic. A cue sheet is read on a music stand under a single lamp
 
 **Decided: build both.** A second layout, chosen in the print panel, for the projection operator rather than the DSM.
 
-Same one row per cue in running order, different columns: cue number, type, content, and the settings that cue runs with once its overrides are applied to the show defaults. For a decryption cue that is the hold, clock and wave, and whether the histogram and subtext are on. For an image cue it is the hold, clock, wave, grid, flip duration and order. For a video cue it is the end behaviour, and for a blank cue its colour. Every cue also lists its transition in: the style, and the fade time when it fades; and a cue that continues says when. A value the cue overrides is marked, so a setting changed for one cue is not mistaken for the show default.
+Same one row per cue in running order, different columns: cue number, type, content, and the settings that cue runs with once its overrides are applied to the show defaults. For a decryption cue that is the hold, clock and wave, and whether the histogram and subtext are on. For an image cue it is the hold, clock, wave, grid, flip duration, order and reveal. For a video cue it is the end behaviour, and for a blank cue its colour. Every cue also lists its transition in: the style, and the fade time when it fades; and a cue that continues says when. A value the cue overrides is marked, so a setting changed for one cue is not mistaken for the show default.
 
 It is a tech-week document. It exists so settings dialled in on the rig can be written down, checked against, and restored if a document is ever lost or rebuilt. It carries no cue points, because an operator reading settings is not the operator waiting for a line.
 
@@ -404,7 +408,7 @@ A `Cue` is a struct with an enum payload per kind, so an invalid combination can
 | `atEnd` | video | hold, black or loop. Default hold |
 | `continue` | all | What happens after this cue: absent for when cued; `{"after": 5}` for seconds after it fires; `{"finished": 2}` for seconds after it finishes. Flagged in the console on the last cue, or on a looping clip set to continue when finished |
 | `transition` | all | The cue's own transition in, overriding the show's: a style, `snap` or `fade`, a fade time in milliseconds, or both. Absent means the show's default |
-| `overrides` | title, image | This cue's values for settings the show holds defaults for. Absent means inherit. Decryption: clock, wave, hold, histogram, subtext. Image: clock, wave, hold, grid, flip, order |
+| `overrides` | title, image | This cue's values for settings the show holds defaults for. Absent means inherit. Decryption: clock, wave, hold, histogram, subtext. Image: clock, wave, hold, grid, flip, order, reveal by |
 
 ### Show defaults and overrides
 
@@ -412,7 +416,7 @@ A `Cue` is a struct with an enum payload per kind, so an invalid combination can
 
 In edit mode the panels beneath the preview are tabs: Cue, Cue Settings, Show Defaults and Projection Area.
 
-- **Show Defaults** has three groups side by side: timing (clock, wave, hold), decryption cues (text size, histogram, subtext) and image cues (grid, flip, order), with transitions (style, fade time) beneath, each setting with its own range and step. A change applies when a cue next runs, except text size, which refits a title on stage at once.
+- **Show Defaults** has three groups side by side: timing (clock, wave, hold), decryption cues (text size, histogram, subtext) and image cues (grid, flip, order, reveal by), with transitions (style, fade time) beneath, each setting with its own range and step. A change applies when a cue next runs, except text size, which refits a title on stage at once.
 - **Cue Settings** shows what the cue standing by runs with, in the same groups. Values the cue sets itself are in brass, each with a Reset that puts it back on the show's default. A video or blank cue has only its transition in here: a video plays on its own clock and a blank is instant.
 - A slider drag is one step of undo, however far it moves.
 - The console, the printed operator sheet and the panels word every setting the same way, from one definition of each. That definition also explains each setting, shown when the pointer rests on it, and the panels explain clock, wave and hold together: timing is counted in steps of the clock. A hold reads in steps and in seconds, as "44 · 1.9 s", on screen and on paper.

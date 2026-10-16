@@ -3,6 +3,7 @@ public enum SettingValue: Equatable, Sendable {
     case number(Int)
     case flag(Bool)
     case order(TileOrder)
+    case reveal(TileReveal)
     case style(TransitionStyle)
 }
 
@@ -11,19 +12,19 @@ public enum SettingValue: Equatable, Sendable {
 /// and the printed sheet: its range and step, how it reads, and where it
 /// lives in the model.
 public enum SettingKey: String, CaseIterable, Sendable {
-    case clock, wave, hold, textScale, histogram, sceneLine, grid, flip, order, transition, fade
+    case clock, wave, hold, textScale, histogram, sceneLine, grid, flip, order, reveal, transition, fade
 
     /// What a title cue can override.
     public static let title: [SettingKey] = [.clock, .wave, .hold, .histogram, .sceneLine]
     /// What an image cue can override.
-    public static let image: [SettingKey] = [.clock, .wave, .hold, .grid, .flip, .order]
+    public static let image: [SettingKey] = [.clock, .wave, .hold, .grid, .flip, .order, .reveal]
     /// The transition into a cue, which every cue can override.
     public static let transitions: [SettingKey] = [.transition, .fade]
     /// The show-default panels, in their groups.
     public static let groups: [(name: String, keys: [SettingKey])] = [
         ("Timing", [.clock, .wave, .hold]),
         ("Decryption cues", [.textScale, .histogram, .sceneLine]),
-        ("Image cues", [.grid, .flip, .order]),
+        ("Image cues", [.grid, .flip, .order, .reveal]),
         ("Transitions", transitions),
     ]
 
@@ -38,6 +39,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case .grid: "Grid"
         case .flip: "Flip"
         case .order: "Order"
+        case .reveal: "Reveal by"
         case .transition: "Transition"
         case .fade: "Fade"
         }
@@ -54,8 +56,9 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case .histogram: "The letter-frequency bars and readouts beneath the text."
         case .sceneLine: "The smaller line of text beneath the main one."
         case .grid: "How many tiles across the picture is cut into."
-        case .flip: "How long each tile takes to turn over."
-        case .order: "Whether the tiles turn in a sweep from the top left, or in a random order."
+        case .flip: "How long each tile takes to show its part of the picture: to turn over, or to sharpen."
+        case .order: "Whether the tiles go in a sweep from the top left, in a random order, or out along a golden spiral, square by Fibonacci square."
+        case .reveal: "How each tile shows its part of the picture: turning over, or sharpening through finer and finer blocks, 1, 2, 3, 5, 8 across and on."
         case .transition: "How the stage changes to this cue: a fade through black, or a snap."
         case .fade: "How long each half of a fade takes: out, then in."
         }
@@ -85,7 +88,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case .grid: .slider(SettingRange.gridColumns, step: 1)
         case .flip: .slider(SettingRange.flipMs, step: 30)
         case .histogram, .sceneLine: .toggle
-        case .order: .choice(["Diagonal sweep", "Random"])
+        case .order: .choice(["Diagonal sweep", "Random", "Golden spiral"])
+        case .reveal: .choice(["Flipping", "Sharpening"])
         case .transition: .choice(["Fade through black", "Snap"])
         case .fade: .slider(SettingRange.fadeMs, step: 100)
         }
@@ -94,7 +98,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
     /// For a choice, the value at each place in its menu.
     public func choice(at index: Int) -> SettingValue? {
         switch self {
-        case .order: [SettingValue.order(.diagonal), .order(.random)][safe: index]
+        case .order: [SettingValue.order(.diagonal), .order(.random), .order(.spiral)][safe: index]
+        case .reveal: [SettingValue.reveal(.flip), .reveal(.sharpen)][safe: index]
         case .transition: [SettingValue.style(.fade), .style(.snap)][safe: index]
         default: nil
         }
@@ -102,7 +107,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
 
     /// For a choice, where a value sits in its menu.
     public func choiceIndex(of value: SettingValue) -> Int? {
-        (0..<2).first { choice(at: $0) == value }
+        guard case .choice(let options) = control else { return nil }
+        return options.indices.first { choice(at: $0) == value }
     }
 
     /// How a value reads beside its control.
@@ -114,7 +120,10 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case (.fade, .number(let n)): fixedDecimal(Double(n) / 1000, digits: 1) + " s"
         case (.grid, .number(let n)): "\(n) wide"
         case (_, .flag(let on)): on ? "on" : "off"
-        case (_, .order(let order)): order == .diagonal ? "diagonal sweep" : "random"
+        case (_, .order(.diagonal)): "diagonal sweep"
+        case (_, .order(.random)): "random"
+        case (_, .order(.spiral)): "golden spiral"
+        case (_, .reveal(let reveal)): reveal == .flip ? "flipping" : "sharpening"
         case (_, .style(let style)): style == .fade ? "fade through black" : "snap"
         case (_, .number(let n)): "\(n)"
         }
@@ -140,6 +149,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case .grid: .number(s.gridColumns)
         case .flip: .number(s.flipMs)
         case .order: .order(s.order)
+        case .reveal: .reveal(s.reveal)
         case .transition: .style(s.transition)
         case .fade: .number(s.fadeMs)
         }
@@ -156,6 +166,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case (.grid, .number(let n)): s.gridColumns = n
         case (.flip, .number(let n)): s.flipMs = n
         case (.order, .order(let order)): s.order = order
+        case (.reveal, .reveal(let reveal)): s.reveal = reveal
         case (.transition, .style(let style)): s.transition = style
         case (.fade, .number(let n)): s.fadeMs = n
         default: break
@@ -202,6 +213,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
             case .grid: return o.gridColumns.map(SettingValue.number)
             case .flip: return o.flipMs.map(SettingValue.number)
             case .order: return o.order.map(SettingValue.order)
+            case .reveal: return o.reveal.map(SettingValue.reveal)
             default: return nil
             }
         case .video, .blank:
@@ -216,6 +228,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
         func number() -> Int? { if case .number(let n) = value { n } else { nil } }
         func flag() -> Bool? { if case .flag(let on) = value { on } else { nil } }
         func order() -> TileOrder? { if case .order(let o) = value { o } else { nil } }
+        func reveal() -> TileReveal? { if case .reveal(let r) = value { r } else { nil } }
         func style() -> TransitionStyle? { if case .style(let s) = value { s } else { nil } }
         switch self {
         case .transition:
@@ -245,6 +258,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
             case .grid: c.overrides.gridColumns = number()
             case .flip: c.overrides.flipMs = number()
             case .order: c.overrides.order = order()
+            case .reveal: c.overrides.reveal = reveal()
             default: return
             }
             cue.content = .image(c)

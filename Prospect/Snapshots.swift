@@ -23,6 +23,12 @@ enum Snapshots {
         // And a timed continue, on the cue the editor shows.
         show.cues[4].continueMode = .after(ms: 5000)
         show.cues[7].continueMode = .whenFinished
+        // The first picture goes in a golden spiral, so the frame caught
+        // mid-reveal shows its shape.
+        if case .image(var first) = show.cues[2].content {
+            first.overrides.order = .spiral
+            show.cues[2].content = .image(first)
+        }
         show.cues[5].continueMode = .whenFinished(waitMs: 2000)
         let document = ShowDocument(show: show, warnings: [])
         NSDocumentController.shared.addDocument(document)
@@ -36,6 +42,11 @@ enum Snapshots {
         controller.go()
         for i in 1...720 { controller.tick(at: start + Double(i) / 60) }
         save(console, "console-show", to: directory)
+        // The wordmark partway through decrypting, as when the window opens,
+        // then home again.
+        console.holdWordmark(atFrame: 14)
+        save(console, "console-wordmark", to: directory)
+        console.holdWordmark(atFrame: 1000)
 
         // Past the video, which goes to black at once.
         controller.go()
@@ -49,7 +60,7 @@ enum Snapshots {
         controller.go()
         controller.tick(at: fired + 0.6)
         RunLoop.current.run(until: Date().addingTimeInterval(1))
-        controller.tick(at: fired + 0.5 + 0.044 * 60)
+        controller.tick(at: fired + 0.5 + 0.044 * 70)
         save(console, "console-image-turning", to: directory)
         controller.tick(at: fired + 30)
         save(console, "console-image", to: directory)
@@ -68,7 +79,8 @@ enum Snapshots {
         // the show's defaults.
         let image = controller.show.cues[5].id
         controller.setOverride(.grid, to: .number(20), for: image)
-        controller.setOverride(.order, to: .order(.random), for: image)
+        controller.setOverride(.order, to: .order(.spiral), for: image)
+        controller.setOverride(.reveal, to: .reveal(.sharpen), for: image)
         console.showEditTab(1)
         save(console, "console-cue-settings", to: directory)
         console.showEditTab(2)

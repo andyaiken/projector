@@ -156,6 +156,23 @@ final class ConsoleWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
     }
 
+    /// The first time the console comes up, its wordmark decrypts.
+    private var hasShown = false
+
+    override func showWindow(_ sender: Any?) {
+        if !hasShown {
+            hasShown = true
+            header.decryptWordmark()
+        }
+        super.showWindow(sender)
+    }
+
+    #if DEBUG
+    func holdWordmark(atFrame frame: Int) {
+        header.holdWordmark(atFrame: frame)
+    }
+    #endif
+
     func refresh() {
         refreshPending = false
         let show = controller.show, playhead = controller.playhead, projector = controller.projector

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ProspectCore
 
@@ -57,7 +58,7 @@ struct SettingKeyTests {
     @Test("Which settings apply to which cues")
     func applicability() {
         #expect(SettingKey.allCases.filter { $0.applies(to: .title) } == [.clock, .wave, .hold, .histogram, .sceneLine, .transition, .fade])
-        #expect(SettingKey.allCases.filter { $0.applies(to: .image) } == [.clock, .wave, .hold, .grid, .flip, .order, .transition, .fade])
+        #expect(SettingKey.allCases.filter { $0.applies(to: .image) } == [.clock, .wave, .hold, .grid, .flip, .order, .reveal, .transition, .fade])
         #expect(SettingKey.allCases.filter { $0.applies(to: .video) } == [.transition, .fade], "every cue has a transition in")
         #expect(SettingKey.allCases.filter { $0.applies(to: .blank) } == [.transition, .fade])
         #expect(SettingKey.groups.flatMap(\.keys) == SettingKey.allCases, "the panels show every setting once")
@@ -71,6 +72,8 @@ struct SettingKeyTests {
         #expect(SettingKey.grid.format(.number(12)) == "12 wide")
         #expect(SettingKey.histogram.format(.flag(true)) == "on")
         #expect(SettingKey.order.format(.order(.diagonal)) == "diagonal sweep")
+        #expect(SettingKey.order.format(.order(.spiral)) == "golden spiral")
+        #expect(SettingKey.order.choice(at: 2) == .order(.spiral) && SettingKey.order.choiceIndex(of: .order(.spiral)) == 2)
     }
 
     @Test("Every setting explains itself, and a hold says how long it lasts")
@@ -81,5 +84,19 @@ struct SettingKeyTests {
         #expect(SettingKey.holdLength(holdTicks: 44, clockMs: 44) == "1.9 s")
         #expect(SettingKey.holdLength(holdTicks: 10, clockMs: 100) == "1.0 s")
         #expect(SettingKey.holdLength(holdTicks: 0, clockMs: 44) == nil, "no hold, nothing to time")
+    }
+
+    @Test("Reveal by: flipping or sharpening, a show default any image cue can override")
+    func revealBy() throws {
+        #expect(ShowSettings().reveal == .flip)
+        #expect(SettingKey.reveal.format(.reveal(.sharpen)) == "sharpening")
+        #expect(SettingKey.reveal.choice(at: 1) == .reveal(.sharpen))
+        var cue = Cue(content: .image(ImageContent(text: "GALLERY")))
+        SettingKey.reveal.setOverride(.reveal(.sharpen), in: &cue)
+        guard case .image(let content) = cue.content else { return }
+        #expect(ShowSettings().resolved(content.overrides).reveal == .sharpen)
+        let back = try JSONDecoder().decode(Cue.self, from: try JSONEncoder().encode(cue))
+        #expect(SettingKey.reveal.override(in: back) == .reveal(.sharpen))
+        #expect(!SettingKey.reveal.applies(to: .title))
     }
 }
