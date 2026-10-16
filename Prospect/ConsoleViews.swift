@@ -410,11 +410,15 @@ final class CueRowView: NSView {
 
     private static let noteHeight: CGFloat = 14
 
-    /// Where the cue's name sits, below any transition note.
-    private var firstLineY: CGFloat { 8 + (transitionNote == nil ? 0 : Self.noteHeight) }
+    /// The middle of the cue's own lines, below any transition note. The
+    /// number and kind on the left, and every mark and control on the right,
+    /// centre on it, so they line up however many lines the row has.
+    private var middleY: CGFloat { ((transitionNote == nil ? 0 : Self.noteHeight) + bounds.height) / 2 }
     /// The whole height of the row's right edge, so it's easy to take hold of.
     var gripRect: NSRect { NSRect(x: bounds.width - 26, y: 0, width: 26, height: bounds.height) }
-    var deleteRect: NSRect { NSRect(x: bounds.width - 48, y: firstLineY - 3, width: 22, height: 22) }
+    var deleteRect: NSRect { NSRect(x: bounds.width - 48, y: middleY - 11, width: 22, height: 22) }
+    /// A mark's place at the right, centred on the middle.
+    private func markRect(x: CGFloat) -> NSRect { NSRect(x: x, y: middleY - 8, width: 14, height: 16) }
     /// The room the edit-mode controls take at the right.
     private var controlsWidth: CGFloat { isEditing ? 48 : 0 }
 
@@ -470,12 +474,14 @@ final class CueRowView: NSView {
             draw("\u{2193} " + transitionNote, Desk.sans(10.5), Desk.brass, x: 78, y: 3, width: bounds.width - 88)
             y += Self.noteHeight
         }
-        draw(cue.number, Desk.mono(12), isStandby ? Desk.brass : Desk.dim, x: 8, y: y + 1, width: 40, align: .right)
-        draw(Self.kindGlyph(cue.kind), Desk.mono(11), Desk.dim, x: 56, y: y + 1, width: 14)
+        // Text boxes are 18 high, with the glyphs sitting a point low in them.
+        let leftY = middleY - 9 - 1
+        draw(cue.number, Desk.mono(12), isStandby ? Desk.brass : Desk.dim, x: 8, y: leftY, width: 40, align: .right)
+        draw(Self.kindGlyph(cue.kind), Desk.mono(11), Desk.dim, x: 56, y: leftY, width: 14)
         // At the right: in edit mode the grip and delete; then how the cue
         // continues, then any problem.
         if isEditing {
-            drawSymbol("line.3.horizontal", Desk.dim, centredIn: gripRect)
+            drawSymbol("line.3.horizontal", Desk.dim, centredIn: NSRect(x: gripRect.minX, y: middleY - 11, width: gripRect.width, height: 22))
             drawSymbol("trash", Desk.dim, centredIn: deleteRect, size: 10.5)
         }
         let symbol = Self.continueSymbol(cue.continueMode)
@@ -484,11 +490,11 @@ final class CueRowView: NSView {
         draw(cue.text.isEmpty ? "\u{2014}" : cue.text, Desk.mono(13), Desk.text, x: textX, y: y, width: textWidth, kern: 0.65)
         var markX = bounds.width - 22 - controlsWidth
         if let symbol {
-            drawSymbol(symbol, isStandby ? Desk.brass : Desk.dim, centredIn: NSRect(x: markX, y: y + 1, width: 14, height: 16))
+            drawSymbol(symbol, isStandby ? Desk.brass : Desk.dim, centredIn: markRect(x: markX))
             markX -= 18
         }
         if hasIssue {
-            draw("!", Desk.mono(13, .bold), Desk.brass, x: markX + 2, y: y, width: 12)
+            draw("!", Desk.mono(13, .bold), Desk.brass, x: markX + 2, y: middleY - 9 - 1, width: 12)
         }
         y += 18
         if !subtitle.isEmpty {
