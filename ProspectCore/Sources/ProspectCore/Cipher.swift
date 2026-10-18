@@ -90,4 +90,33 @@ public enum English {
         }
         return x
     }
+
+    /// The 26 commonest pairs of neighbouring letters in English words,
+    /// commonest first: one for each bar of the histogram.
+    public static let digraphs = ["TH", "HE", "IN", "ER", "AN", "RE", "ON", "AT", "EN", "ND", "TI", "ES", "OR",
+                                  "TE", "OF", "ED", "IS", "IT", "AL", "AR", "ST", "TO", "NT", "NG", "SE", "HA"]
+
+    /// Percent of all pairs of neighbouring letters, from Peter Norvig's
+    /// counts over the Google Books corpus.
+    public static let digraphFrequencies: [Double] = [3.56, 3.07, 2.43, 2.05, 1.99, 1.85, 1.76, 1.49, 1.45, 1.35, 1.34, 1.34, 1.28,
+                                                       1.20, 1.17, 1.17, 1.13, 1.12, 1.09, 1.07, 1.05, 1.04, 1.04, 0.95, 0.93, 0.93]
+
+    /// Each digraph's ghost bar, as a percentage of the tallest (TH).
+    public static let digraphGhostHeights: [Double] = digraphFrequencies.map { $0 / digraphFrequencies[0] * 100 }
+
+    /// How often each of the 26 digraphs comes in some lines of glyphs, and
+    /// how many pairs of neighbouring letters there are in all. Anything
+    /// that isn't a letter, such as an unsettled space's open box, breaks a
+    /// pair, so the counts give word boundaries away no sooner than the
+    /// text does.
+    public static func digraphCounts(_ lines: [[Character]]) -> (counts: [Int], pairs: Int) {
+        var counts = [Int](repeating: 0, count: 26), pairs = 0
+        for line in lines {
+            for (a, b) in zip(line, line.dropFirst()) where Cipher.letterIndex(a) != nil && Cipher.letterIndex(b) != nil {
+                pairs += 1
+                if let i = digraphs.firstIndex(of: String(a) + String(b)) { counts[i] += 1 }
+            }
+        }
+        return (counts, pairs)
+    }
 }

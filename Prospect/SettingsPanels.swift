@@ -51,6 +51,16 @@ final class SettingRow: NSView {
             popup.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             addSubview(popup)
             self.popup = popup
+        case .font:
+            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+            popup.menu = Self.fontMenu()
+            popup.target = self
+            popup.action = #selector(chosen(_:))
+            popup.refusesFirstResponder = true
+            popup.controlSize = .small
+            popup.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            addSubview(popup)
+            self.popup = popup
         }
         for view in [label, value, slider, toggle, popup].compactMap({ $0 as NSView? }) { view.toolTip = key.help }
         if let reset {
@@ -75,7 +85,8 @@ final class SettingRow: NSView {
         switch v {
         case .number(let n): slider?.integerValue = n
         case .flag(let on): toggle?.state = on ? .on : .off
-        case .order, .reveal, .letters, .style: popup?.selectItem(at: key.choiceIndex(of: v) ?? 0)
+        case .order, .reveal, .letters, .bars, .style: popup?.selectItem(at: key.choiceIndex(of: v) ?? 0)
+        case .font(let family): select(family: family)
         }
         value.stringValue = key.format(v)
         value.textColor = overridden == true ? Desk.brass : (overridden == false ? Desk.dim : Desk.text)
@@ -101,9 +112,56 @@ final class SettingRow: NSView {
     }
 
     @objc private func chosen(_ sender: NSPopUpButton) {
+        if case .font = key.control {
+            onChange(.font(sender.selectedItem?.representedObject as? String ?? ""), false)
+            return
+        }
         guard let value = key.choice(at: sender.indexOfSelectedItem) else { return }
         onChange(value, false)
     }
+
+    // MARK: Fonts
+
+    /// The stage's own type, then every font family on this Mac, each named
+    /// in its own type unless it is a symbol font, so a hand can be picked
+    /// by eye.
+    private static func fontMenu() -> NSMenu {
+        let menu = NSMenu()
+        let stage = NSMenuItem(title: SettingKey.stageFont, action: nil, keyEquivalent: "")
+        stage.representedObject = ""
+        menu.addItem(stage)
+        menu.addItem(.separator())
+        for family in NSFontManager.shared.availableFontFamilies.filter({ !$0.hasPrefix(".") }).sorted() {
+            let item = NSMenuItem(title: family, action: nil, keyEquivalent: "")
+            item.representedObject = family
+            if let font = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: 13) {
+                let style = CTFontGetSymbolicTraits(font as CTFont).rawValue & CTFontSymbolicTraits.traitClassMask.rawValue
+                if style != CTFontStylisticClass.classSymbolic.rawValue {
+                    item.attributedTitle = NSAttributedString(string: family, attributes: [.font: font])
+                }
+            }
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    /// Shows a family as chosen. One this Mac doesn't have is listed first,
+    /// marked, so a show from another Mac reads truthfully.
+    private func select(family: String) {
+        guard let popup else { return }
+        popup.menu?.items.filter { $0.tag == Self.missingTag }.forEach { popup.menu?.removeItem($0) }
+        if let item = popup.menu?.items.first(where: { $0.representedObject as? String == family }) {
+            popup.select(item)
+            return
+        }
+        let missing = NSMenuItem(title: "\(family) (not on this Mac)", action: nil, keyEquivalent: "")
+        missing.representedObject = family
+        missing.tag = Self.missingTag
+        popup.menu?.insertItem(missing, at: 0)
+        popup.select(missing)
+    }
+
+    private static let missingTag = 404
 
     /// Off where the setting has no effect, as a fade time on a snap.
     var isEnabled = true {
@@ -194,14 +252,39 @@ final class ShowDefaultsPanel: PanelView, NSTextFieldDelegate {
         for row in groups.flatMap(\.rows) {
             row.show(row.key.value(in: settings), overridden: nil)
             if row.key == .fade { row.isEnabled = settings.transition == .fade }
+            if row.key == .bars { row.isEnabled = settings.histogram }
             if row.key == .hold { row.annotate(SettingKey.holdLength(holdTicks: settings.holdTicks, clockMs: settings.clockMs)) }
         }
     }
 
-    /// Room for the title, every group, and the note.
-    var preferredHeight: CGFloat {
-        Self.groupsTop + SettingGroups.height(of: groups.map(\.rows.count)) + 6 + 36 + 12
+    /// Room for the title, every group, the timing note, and the note, at a
+    /// width.
+    func preferredHeight(width: CGFloat) -> CGFloat {
+        let inner = width - 32
+        let place = timingNotePlace(inner: inner)
+        let groupsBottom = Self.groupsTop + SettingGroups.height(of: groups.map(\.rows.count))
+        let noteBottom = place.top + SettingGroups.headingHeight + Desk.height(of: timingNote, width: place.width)
+        return max(groupsBottom, noteBottom) + 6 + Desk.height(of: note, width: inner) + 12
     }
+
+    /// Where the timing note goes: in the last line's empty columns, or
+    /// beneath the groups if the last line is full.
+    private func timingNotePlace(inner: CGFloat) -> (x: CGFloat, width: CGFloat, top: CGFloat) {
+        let gap = Self.gap, perLine = SettingGroups.perLine
+        let columnWidth = (inner - gap * CGFloat(perLine - 1)) / CGFloat(perLine)
+        let counts = groups.map(\.rows.count)
+        let lastLineStart = (counts.count - 1) / perLine * perLine
+        let used = counts.count - lastLineStart
+        let above = Array(counts[..<lastLineStart])
+        let lastLineTop = Self.groupsTop + (above.isEmpty ? 0 : SettingGroups.height(of: above) + SettingGroups.lineGap)
+        guard used < perLine else {
+            return (0, inner, Self.groupsTop + SettingGroups.height(of: counts) + SettingGroups.lineGap)
+        }
+        let free = CGFloat(perLine - used)
+        return (CGFloat(used) * (columnWidth + gap), columnWidth * free + gap * (free - 1), lastLineTop)
+    }
+
+    private static let gap: CGFloat = 24
 
     private static let groupsTop: CGFloat = 60
 
@@ -230,16 +313,14 @@ final class ShowDefaultsPanel: PanelView, NSTextFieldDelegate {
         let titleWidth = min(360, inner - 84)
         title.frame = NSRect(x: x + 84, y: 16, width: titleWidth, height: 24)
         titleNote.frame = NSRect(x: x + 84 + titleWidth + 12, y: 19, width: max(0, inner - 96 - titleWidth), height: 18)
-        let bottom = SettingGroups.layout(groups, x: x, y: Self.groupsTop, width: inner, gap: gap)
+        let groupsBottom = SettingGroups.layout(groups, x: x, y: Self.groupsTop, width: inner, gap: gap)
+        // Beside the last groups, in their line's empty columns.
+        let place = timingNotePlace(inner: inner)
+        timingHeading.frame = NSRect(x: x + place.x, y: place.top, width: place.width, height: 16)
+        timingNote.frame = NSRect(x: x + place.x, y: place.top + SettingGroups.headingHeight, width: place.width,
+                                  height: Desk.height(of: timingNote, width: place.width))
+        let bottom = max(groupsBottom, timingNote.frame.maxY)
         note.frame = NSRect(x: x, y: bottom + 6, width: inner, height: Desk.height(of: note, width: inner))
-        // Beside Transitions, in the second line's empty columns.
-        let columnWidth = (inner - gap * 2) / 3
-        let firstLineRows = CGFloat(groups.prefix(SettingGroups.perLine).map(\.rows.count).max() ?? 0)
-        let secondLine = Self.groupsTop + SettingGroups.headingHeight + firstLineRows * SettingGroups.rowPitch + SettingGroups.lineGap
-        let noteX = x + columnWidth + gap, noteWidth = columnWidth * 2 + gap
-        timingHeading.frame = NSRect(x: noteX, y: secondLine, width: noteWidth, height: 16)
-        timingNote.frame = NSRect(x: noteX, y: secondLine + SettingGroups.headingHeight, width: noteWidth,
-                                  height: Desk.height(of: timingNote, width: noteWidth))
     }
 }
 
@@ -308,6 +389,7 @@ final class CueSettingsPanel: PanelView {
             let (value, overridden) = row.key.effective(for: cue, defaults: defaults)
             row.show(value, overridden: overridden)
             if row.key == .fade { row.isEnabled = cue.transitionIn(defaults: defaults).style == .fade }
+            if row.key == .bars { row.isEnabled = SettingKey.histogram.effective(for: cue, defaults: defaults).value == .flag(true) }
             if row.key == .hold { row.annotate(SettingKey.holdLength(holdTicks: timing.holdTicks, clockMs: timing.clockMs)) }
         }
     }

@@ -57,7 +57,7 @@ struct SettingKeyTests {
 
     @Test("Which settings apply to which cues")
     func applicability() {
-        #expect(SettingKey.allCases.filter { $0.applies(to: .title) } == [.clock, .wave, .hold, .histogram, .sceneLine, .letters, .transition, .fade])
+        #expect(SettingKey.allCases.filter { $0.applies(to: .title) } == [.clock, .wave, .hold, .histogram, .sceneLine, .letters, .bars, .transition, .fade])
         #expect(SettingKey.allCases.filter { $0.applies(to: .image) } == [.clock, .wave, .hold, .grid, .flip, .order, .reveal, .transition, .fade])
         #expect(SettingKey.allCases.filter { $0.applies(to: .video) } == [.transition, .fade], "every cue has a transition in")
         #expect(SettingKey.allCases.filter { $0.applies(to: .blank) } == [.transition, .fade])

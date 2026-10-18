@@ -83,6 +83,17 @@ struct TitleLayoutTests {
         #expect(l.sceneLine.minY > l.titleLine.maxY)
     }
 
+    @Test("A long title takes two lines, sized by the longer, each centred, with the scene line beneath")
+    func twoLines() {
+        let one = layout(21)
+        let two = TitleLayout(size: CGSize(width: 1920, height: 1080), titleLines: [21, 20], sceneCount: 5,
+                              showsScene: true, histogram: true, textScale: 100)
+        #expect(CTFontGetSize(two.titleFont) == CTFontGetSize(one.titleFont), "the longer line sets the size")
+        #expect(two.titleLines.count == 2 && abs(two.titleLines[0].midX - 960) < 1e-9 && abs(two.titleLines[1].midX - 960) < 1e-9)
+        #expect(abs(two.titleLines[1].width / two.titleLines[0].width - 20.0 / 21) < 1e-9, "the same cells on both")
+        #expect(two.titleLines[1].minY > two.titleLines[0].maxY && two.sceneLine.minY > two.titleLines[1].maxY)
+    }
+
     @Test("Bars are never shorter than 44 points")
     func barsHaveAFloor() {
         #expect(layout(4, width: 320, height: 180).bars.height == 44)
@@ -199,6 +210,27 @@ struct TitleRendererTests {
         _ = renderer.frame(1_000)
         #expect(text(of: t.title.runs) == "SOFIA" && t.title.runs.allSatisfy { $0.dy == 0 })
         render(s).save("title-dials-settled")
+    }
+
+    @Test("A long decryption wraps onto two lines, and digraph bars count pairs against English")
+    func longWithDigraphs() throws {
+        let renderer = TitleRenderer(random: SeededRandom(seed: 6), reduceMotion: { true })
+        let s = surface()
+        renderer.mount(on: s)
+        renderer.setVisible(true, on: s)
+        renderer.prepare(titleCue("The keystone is under the sign of the rose", sub: "SAINT-SULPICE", key: "ROSELINE",
+                                  overrides: TitleOverrides(bars: .digraphs)), defaults: ShowSettings())
+        let t = try #require(tree(renderer, on: s))
+        #expect(t.titleLines.count == 2)
+        #expect(text(of: t.axis.runs).hasPrefix("thheiner"), "the commonest pairs, in order")
+        let layout = try #require(t.layout)
+        let ghost = t.ghosts[0].frame.minY - (1080 - layout.bars.maxY)
+        #expect(abs(ghost + 2 - layout.bars.height) < 1e-6, "TH's ghost is the tallest")
+        _ = renderer.frame(30)
+        render(s).save("title-long-digraphs-resolving")
+        _ = renderer.frame(1_000)
+        #expect(t.titleLines.map { text(of: $0.runs) } == ["THE KEYSTONE IS UNDER", "THE SIGN OF THE ROSE"])
+        render(s).save("title-long-digraphs-settled")
     }
 
     @Test("A surface mounted mid-cue shows the current frame at once")

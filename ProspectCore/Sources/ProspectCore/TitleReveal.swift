@@ -8,15 +8,31 @@ public enum TitleLetters: String, Codable, Sendable, CaseIterable {
     case dials
 }
 
+/// What a decryption's histogram counts.
+public enum TitleBars: String, Codable, Sendable, CaseIterable {
+    /// Single letters, A to Z.
+    case letters
+    /// The 26 commonest pairs of neighbouring letters, which tell more on a
+    /// long text.
+    case digraphs
+}
+
 /// A title cue, prepared: the travel plans for the place name and the scene
 /// line, and the scale the histogram is drawn against.
 public struct TitleReveal: Sendable {
     public let titlePlan: TravelPlan
     public let scenePlan: TravelPlan
+    /// The title's lines, as ranges over its characters. A long title wraps;
+    /// the space it wraps at is drawn on neither line.
+    public let titleLines: [Range<Int>]
     /// The scene line is switched on for this cue, whether or not it has one.
     public let sceneLine: Bool
     public let histogram: Bool
     public let letters: TitleLetters
+    public let bars: TitleBars
+    /// The commonest of the 26 digraphs' count in the settled text, which
+    /// digraph bars are scaled against.
+    public let digraphScale: Int
     /// The tallest letter count in the settled text. Bars are scaled against
     /// this rather than the current frame, so they don't jump as glyphs cycle.
     public let histogramScale: Int
@@ -34,10 +50,12 @@ public struct TitleReveal: Sendable {
         // Both lines are planned even with the scene line off, which keeps
         // the random draws in the same order.
         titlePlan = TravelPlan(text: text, key: key, wave: settings.waveTicks, random: &random)
+        titleLines = TextLines.ranges(text.uppercased())
         scenePlan = TravelPlan(text: scene, key: key, wave: settings.waveTicks, random: &random)
         sceneLine = settings.sceneLine
         histogram = settings.histogram
         letters = settings.letters
+        bars = settings.bars
 
         var counts = [Int](repeating: 0, count: 26)
         let settled = text.uppercased() + (settings.sceneLine ? scene.uppercased() : "")
@@ -45,6 +63,8 @@ public struct TitleReveal: Sendable {
             if let i = Cipher.letterIndex(c) { counts[i] += 1 }
         }
         histogramScale = max(counts.max()!, 1)
+        let settledLines = [Array(text.uppercased())] + (settings.sceneLine ? [Array(scene.uppercased())] : [])
+        digraphScale = max(English.digraphCounts(settledLines).counts.max()!, 1)
     }
 
     public init(cue: TitleContent, settings: TitleSettings, random: inout some UnitRandom) {
@@ -67,13 +87,23 @@ public struct TitleReveal: Sendable {
         for g in title + scene {
             if let i = Cipher.letterIndex(g.glyph) { counts[i] += 1 }
         }
-        let bars = counts.map { min(100, Double($0) / Double(histogramScale) * 100) }
+        // Chi-squared stays on letters either way. Over a text of stage
+        // length each digraph is expected well under once, and chi-squared
+        // of counts that small would climb as English appeared.
+        let heights: [Double]
+        switch bars {
+        case .letters:
+            heights = counts.map { min(100, Double($0) / Double(histogramScale) * 100) }
+        case .digraphs:
+            let pairs = English.digraphCounts([title.map(\.glyph), scene.map(\.glyph)]).counts
+            heights = pairs.map { min(100, Double($0) / Double(digraphScale) * 100) }
+        }
 
         return TitleFrame(
             title: title,
             scene: scene,
             letterCounts: counts,
-            barHeights: bars,
+            barHeights: heights,
             solved: title.count(where: \.isSettled),
             keyLength: titlePlan.keyLength,
             chiSquared: English.chiSquared(counts),

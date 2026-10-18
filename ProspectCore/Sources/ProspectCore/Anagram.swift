@@ -4,9 +4,11 @@ import Foundation
 /// lines, which character of the first lands where in the second, and when
 /// each one moves.
 ///
-/// Characters are matched in reading order: the first A of the first phrase
-/// goes to the first A of the second, and so on, so no two of the same
-/// letter cross. When both phrases are the same words or numbers in a new
+/// Characters are matched in reading order, whatever their case: the first
+/// A of the first phrase goes to the first A of the second, and so on, so no
+/// two of the same letter cross. A letter that changes case on the way, as
+/// the l of "lame" does becoming the L of "Leonardo", lands as the second
+/// phrase has it. When both phrases are the same words or numbers in a new
 /// order, as 13-3-2-21-1-1-8-5 and 1-1-2-3-5-8-13-21 are, each word moves
 /// whole instead. A character only one phrase has, such as a comma, fades out
 /// of the first or into the second.
@@ -24,7 +26,10 @@ public struct AnagramPlan: Equatable, Sendable {
 
     /// One character on stage.
     public struct Piece: Equatable, Sendable {
+        /// As the first phrase has it, or for one that fades in, the second.
         public var character: Character
+        /// As the second phrase has it, where it lands.
+        public var landing: Character
         /// Where it starts; nil when it fades in.
         public var from: Slot?
         /// Where it lands; nil when it fades out.
@@ -41,8 +46,6 @@ public struct AnagramPlan: Equatable, Sendable {
     /// The latest the last piece sets off, before any jitter: early enough
     /// that it has gone before the first one lands.
     static let departures = travelFrames - 4
-    /// A phrase longer than this splits into lines.
-    public static let lineLength = 24
 
     public let fromLines: [String]
     public let toLines: [String]
@@ -63,20 +66,21 @@ public struct AnagramPlan: Equatable, Sendable {
         toLines = Self.lines(to)
         let source = Self.characters(fromLines), target = Self.characters(toLines)
         let sourceWords = Self.words(fromLines), targetWords = Self.words(toLines)
-        movesWholeWords = sourceWords.count > 1 && sourceWords.map(\.text).sorted() == targetWords.map(\.text).sorted()
+        movesWholeWords = sourceWords.count > 1 && sourceWords.map(\.key).sorted() == targetWords.map(\.key).sorted()
 
         // Each source character's partner in the target, if it has one.
         var partner: [Slot: Slot] = [:]
         if movesWholeWords {
-            for (s, t) in Self.match(sourceWords, targetWords, by: \.text) {
+            for (s, t) in Self.match(sourceWords, targetWords, by: \.key) {
                 for (a, b) in zip(s.slots, t.slots) { partner[a] = b }
             }
             let inWords = Set(sourceWords.flatMap(\.slots)), inTargetWords = Set(targetWords.flatMap(\.slots))
             let others = source.filter { !inWords.contains($0.slot) }, targetOthers = target.filter { !inTargetWords.contains($0.slot) }
-            for (s, t) in Self.match(others, targetOthers, by: \.character) { partner[s.slot] = t.slot }
+            for (s, t) in Self.match(others, targetOthers, by: \.key) { partner[s.slot] = t.slot }
         } else {
-            for (s, t) in Self.match(source, target, by: \.character) { partner[s.slot] = t.slot }
+            for (s, t) in Self.match(source, target, by: \.key) { partner[s.slot] = t.slot }
         }
+        let landing = Dictionary(uniqueKeysWithValues: target.map { ($0.slot, $0.character) })
 
         // Everything leaves in reading order, a word at a time when words
         // move whole, otherwise a character at a time.
@@ -93,7 +97,9 @@ public struct AnagramPlan: Equatable, Sendable {
             starts[key] = roundHalfUp(fraction * Double(spread)) + random.below(3)
         }
         var pieces = source.map { c in
-            Piece(character: c.character, from: c.slot, to: partner[c.slot], start: starts[leader[c.slot] ?? c.slot] ?? 0)
+            let to = partner[c.slot]
+            return Piece(character: c.character, landing: to.flatMap { landing[$0] } ?? c.character, from: c.slot, to: to,
+                         start: starts[leader[c.slot] ?? c.slot] ?? 0)
         }
         let landed = pieces.map { $0.start + ($0.travels ? Self.travelFrames : Self.fadeFrames) }.max() ?? 0
 
@@ -101,7 +107,7 @@ public struct AnagramPlan: Equatable, Sendable {
         let arrived = Set(partner.values)
         let fadeIn = max(0, landed - Self.fadeFrames)
         for c in target where !arrived.contains(c.slot) {
-            pieces.append(Piece(character: c.character, from: nil, to: c.slot, start: fadeIn))
+            pieces.append(Piece(character: c.character, landing: c.character, from: nil, to: c.slot, start: fadeIn))
         }
         self.pieces = pieces
         duration = pieces.isEmpty ? 0 : max(landed, fadeIn + Self.fadeFrames)
@@ -120,31 +126,25 @@ public struct AnagramPlan: Equatable, Sendable {
 
     // MARK: Laying out
 
-    /// A phrase in capitals, on one line or, past `lineLength` characters,
-    /// split at the space nearest the middle, and again if a half is still
-    /// too long.
+    /// A phrase as typed, its spaces closed up to one, in lines as
+    /// `TextLines` splits them.
     public static func lines(_ phrase: String) -> [String] {
-        let words = phrase.uppercased().split(whereSeparator: \.isWhitespace)
-        return split(words.joined(separator: " "))
-    }
-
-    private static func split(_ line: String) -> [String] {
-        guard line.count > lineLength else { return line.isEmpty ? [] : [line] }
+        let line = phrase.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let characters = Array(line)
-        let middle = Double(characters.count - 1) / 2
-        let spaces = characters.indices.filter { characters[$0] == " " }
-        guard let at = spaces.min(by: { abs(Double($0) - middle) < abs(Double($1) - middle) }) else { return [line] }
-        return split(String(characters[..<at])) + split(String(characters[(at + 1)...]))
+        return TextLines.ranges(line).map { String(characters[$0]) }
     }
 
     private struct Placed {
         var character: Character
         var slot: Slot
+        /// What it is matched by: the same letter in either case.
+        var key: String { character.uppercased() }
     }
 
     private struct Word {
         var text: String
         var slots: [Slot]
+        var key: String { text.uppercased() }
     }
 
     /// Every character but the spaces, in reading order.

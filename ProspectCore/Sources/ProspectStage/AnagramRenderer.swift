@@ -12,13 +12,15 @@ import QuartzCore
 /// Core Animation path with its own duration, as a tile's flip is, so it runs
 /// smoothly between the clock's frames.
 @MainActor
-public final class AnagramRenderer: CueRenderer {
+public final class AnagramRenderer: CueRenderer, ReportsProblems {
     public let isInstant = false
+    public var onProblem: ((String) -> Void)?
 
     private var random: AnyUnitRandom
     private(set) var plan: AnagramPlan?
     private var clockSeconds = 0.044
     private var textScale = 100
+    private var family = ""
     private var lastFrame: Int?
     /// The first paint of a cue put up finished lands without animating.
     private var fresh = true
@@ -79,6 +81,11 @@ public final class AnagramRenderer: CueRenderer {
         plan = AnagramPlan(from: content.text, to: content.answer, wave: settings.waveTicks, random: &random)
         clockSeconds = Double(settings.clockMs) / 1000
         textScale = defaults.textScale
+        family = settings.font
+        if !family.isEmpty, !StageFont.has(family: family) {
+            let name = cue.number.isEmpty ? "This anagram" : "Cue \(cue.number)"
+            onProblem?("\(name)\u{2019}s font, \(family), isn\u{2019}t on this Mac, so it shows in \(SettingKey.stageFont) instead.")
+        }
         lastFrame = nil
         fresh = true
         for tree in trees.values {
@@ -109,15 +116,17 @@ public final class AnagramRenderer: CueRenderer {
         guard size.width > 0, size.height > 0 else { return }
         tree.root.frame = CGRect(origin: .zero, size: size)
         guard let plan else { return }
-        let layout = AnagramLayout(size: size, plan: plan, textScale: textScale)
+        let layout = AnagramLayout(size: size, plan: plan, textScale: textScale, family: family)
         tree.layout = layout
         for (piece, layer) in zip(plan.pieces, tree.pieces) {
-            layer.bounds = CGRect(x: 0, y: 0, width: layout.pitch, height: layout.lineHeight)
-            for (face, colour) in [(layer.cold, Palette.slate), (layer.warm, Palette.bone)] {
+            layer.bounds = layout.box
+            layer.morphs = piece.character != piece.landing
+            // Slate as the first phrase has it, bone as the answer does.
+            for (face, character, colour) in [(layer.cold, piece.character, Palette.slate), (layer.warm, piece.landing, Palette.bone)] {
                 face.contentsScale = surface.contentsScale
                 face.frame = layer.bounds
-                face.baseline = layout.lineHeight - layout.baseline
-                face.runs = [TextRun(text: String(piece.character), font: layout.font, colour: colour.cgColor, x: 0, cell: layout.pitch)]
+                face.baseline = layout.boxBaseline
+                face.runs = [TextRun(text: String(character), font: layout.font, colour: colour.cgColor, x: 0, cell: layout.box.width)]
             }
         }
         // Anything mid-journey picks up from where the new layout puts it.
@@ -174,6 +183,10 @@ public final class AnagramRenderer: CueRenderer {
 final class PieceLayer: StillLayer {
     let cold = TextLayer()
     let warm = TextLayer()
+    /// The two faces are different glyphs, as when a letter changes case on
+    /// the way, so the slate one goes as the bone one comes. Otherwise the
+    /// bone one simply covers it.
+    var morphs = false
     /// Set while a journey or fade is running as an animation, so later
     /// frames leave it be.
     private(set) var animating = false
@@ -212,9 +225,11 @@ final class PieceLayer: StillLayer {
     private func settle(at point: CGPoint, warmth: Double, opacity: Double) {
         removeAllAnimations()
         warm.removeAllAnimations()
+        cold.removeAllAnimations()
         animating = false
         position = point
         warm.opacity = Float(warmth)
+        cold.opacity = morphs ? Float(1 - warmth) : 1
         self.opacity = Float(opacity)
     }
 
@@ -230,7 +245,15 @@ final class PieceLayer: StillLayer {
         let warming = CABasicAnimation(keyPath: "opacity")
         warming.fromValue = 0
         warming.toValue = 1
-        for (animation, layer, key) in [(move as CAAnimation, self as CALayer, "travel"), (warming, warm, "warm")] {
+        var animations = [(move as CAAnimation, self as CALayer, "travel"), (warming, warm, "warm")]
+        if morphs {
+            let cooling = CABasicAnimation(keyPath: "opacity")
+            cooling.fromValue = 1
+            cooling.toValue = 0
+            animations.append((cooling, cold, "cool"))
+            cold.opacity = 0
+        }
+        for (animation, layer, key) in animations {
             animation.beginTime = begin
             animation.duration = duration
             animation.fillMode = .backwards
@@ -283,53 +306,120 @@ struct Arc {
 
 /// Where an anagram's letters go on a surface: both phrases in one size of
 /// type, each line centred, each phrase centred on the stage, so the letters
-/// keep their size as they travel. Measured in Core Animation's coordinates,
-/// from the bottom.
+/// keep their size as they travel. Every line is measured in its own font,
+/// so each letter starts and lands where the font sets it, its own width and
+/// the kerning between letters included; a monospaced font is one case.
+/// Measured in Core Animation's coordinates, from the bottom.
 @MainActor
 struct AnagramLayout {
     let size: CGSize
     let font: CTFont
-    /// The width of one character's cell, and the height of a line.
-    let pitch: CGFloat
     let lineHeight: CGFloat
-    /// The baseline, from the top of a line.
-    let baseline: CGFloat
+    /// One letter's layer, with room for any glyph's flourishes.
+    let box: CGRect
+    /// The baseline, above the bottom of a letter's box.
+    let boxBaseline: CGFloat
+    /// Each line's width, and the middle of each of its characters from the
+    /// line's left edge.
+    private let from: [Measured], to: [Measured]
 
-    init(size: CGSize, plan: AnagramPlan, textScale: Int) {
+    struct Measured {
+        var width: CGFloat
+        var centres: [CGFloat]
+    }
+
+    init(size: CGSize, plan: AnagramPlan, textScale: Int, family: String = "") {
         self.size = size
         let W = size.width, H = size.height
         let padding = 4 * min(W, H) / 100
-        let n = CGFloat(max(plan.columns, 1)), rows = CGFloat(max(plan.rows, 1))
-        // As large as fits 88% of the width, with every line of the taller
-        // phrase in 70% of the height and no line taller than a decryption's.
-        let fit = min(W * 0.88 / (n * TitleLayout.cellEms), H * 0.28, H * 0.7 / (rows * 1.3))
+        let rows = CGFloat(max(plan.rows, 1))
+        // SF Mono is opened out to a decryption's 0.72 em cells; a chosen
+        // font gets a little air between its letters.
+        let monospaced = family.isEmpty || !StageFont.has(family: family)
+        func tracking(_ font: CTFont) -> CGFloat {
+            let size = CTFontGetSize(font)
+            return monospaced ? TitleLayout.cellEms * size - StageFont.advance(of: font) : 0.04 * size
+        }
+        let lines = plan.fromLines + plan.toLines
+        let reference = StageFont.anagram(family: family, size: 100)
+        let widest = lines.map { Self.measure($0, font: reference, tracking: tracking(reference)).width }.max() ?? 0
+        // As large as fits the width, with every line of the taller phrase in
+        // 70% of the height and no line taller than a decryption's.
+        let across = min(W * 0.88, (W - 2 * padding) * 0.9)
+        let fit = min(widest > 0 ? across * 100 / widest : H, H * 0.28, H * 0.7 / (rows * 1.3))
         let fontSize = max(9, fit * CGFloat(textScale) / 100)
-        font = StageFont.title(size: fontSize)
-        pitch = min(fontSize * TitleLayout.cellEms, (W - 2 * padding) * 0.9 / n)
-        lineHeight = fontSize * 1.3
+        let font = StageFont.anagram(family: family, size: fontSize)
+        self.font = font
         let ascent = CTFontGetAscent(font), descent = CTFontGetDescent(font)
-        baseline = (lineHeight - (ascent + descent)) / 2 + ascent
+        lineHeight = max(fontSize * 1.3, (ascent + descent + CTFontGetLeading(font)) * 1.1)
+        box = CGRect(x: 0, y: 0, width: fontSize * 2, height: lineHeight * 1.6)
+        boxBaseline = (box.height - lineHeight) / 2 + (lineHeight - ((lineHeight - (ascent + descent)) / 2 + ascent))
+        let spacing = tracking(font)
+        from = plan.fromLines.map { Self.measure($0, font: font, tracking: spacing) }
+        to = plan.toLines.map { Self.measure($0, font: font, tracking: spacing) }
+    }
+
+    /// A line set in a font, `tracking` points apart: its width, and where
+    /// the middle of each character's glyph falls, as Core Text sets them,
+    /// kerning and any fallback font included.
+    static func measure(_ text: String, font: CTFont, tracking: CGFloat) -> Measured {
+        let attributes: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTKernAttributeName as String): tracking,
+        ]
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        var middles: [Int: CGFloat] = [:]
+        var right: CGFloat = 0
+        for run in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
+            let n = CTRunGetGlyphCount(run)
+            guard n > 0 else { continue }
+            var glyphs = [CGGlyph](repeating: 0, count: n), positions = [CGPoint](repeating: .zero, count: n)
+            var indices = [CFIndex](repeating: 0, count: n), advances = [CGSize](repeating: .zero, count: n)
+            CTRunGetGlyphs(run, CFRange(), &glyphs)
+            CTRunGetPositions(run, CFRange(), &positions)
+            CTRunGetStringIndices(run, CFRange(), &indices)
+            let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName as String].map { $0 as! CTFont } ?? font
+            CTFontGetAdvancesForGlyphs(runFont, .horizontal, glyphs, &advances, n)
+            for k in 0..<n {
+                // A glyph's own width, without the tracking set after it.
+                if middles[indices[k]] == nil { middles[indices[k]] = positions[k].x + advances[k].width / 2 }
+                right = max(right, positions[k].x + advances[k].width)
+            }
+        }
+        var offset = 0, last: CGFloat = 0
+        let centres = text.map { c -> CGFloat in
+            // A character drawn as part of another's glyph, as in a
+            // ligature, shares its middle.
+            last = middles[offset] ?? last
+            offset += String(c).utf16.count
+            return last
+        }
+        return Measured(width: right, centres: centres)
     }
 
     /// Where a piece begins: its place in the first phrase, or, for one
     /// that fades in, its place in the second.
     func start(of piece: AnagramPlan.Piece, plan: AnagramPlan) -> CGPoint {
-        if let from = piece.from { return centre(of: from, in: plan.fromLines) }
-        if let to = piece.to { return centre(of: to, in: plan.toLines) }
+        if let from = piece.from { return centre(of: from, answer: false) }
+        if let to = piece.to { return centre(of: to, answer: true) }
         return CGPoint(x: size.width / 2, y: size.height / 2)
     }
 
     /// Where a piece ends: its place in the second phrase, or, for one that
     /// fades out, where it stood in the first.
     func end(of piece: AnagramPlan.Piece, plan: AnagramPlan) -> CGPoint {
-        if let to = piece.to { return centre(of: to, in: plan.toLines) }
-        if let from = piece.from { return centre(of: from, in: plan.fromLines) }
+        if let to = piece.to { return centre(of: to, answer: true) }
+        if let from = piece.from { return centre(of: from, answer: false) }
         return CGPoint(x: size.width / 2, y: size.height / 2)
     }
 
-    func centre(of slot: AnagramPlan.Slot, in lines: [String]) -> CGPoint {
-        let length = CGFloat(lines.indices.contains(slot.line) ? lines[slot.line].count : 0)
-        let x = (size.width - length * pitch) / 2 + (CGFloat(slot.column) + 0.5) * pitch
+    /// The middle of a character in the first phrase, or with `answer`, the
+    /// second.
+    func centre(of slot: AnagramPlan.Slot, answer: Bool) -> CGPoint {
+        let lines = answer ? to : from
+        guard lines.indices.contains(slot.line) else { return CGPoint(x: size.width / 2, y: size.height / 2) }
+        let line = lines[slot.line]
+        let x = (size.width - line.width) / 2 + (line.centres.indices.contains(slot.column) ? line.centres[slot.column] : 0)
         let top = (size.height - CGFloat(lines.count) * lineHeight) / 2
         let y = top + (CGFloat(slot.line) + 0.5) * lineHeight
         return CGPoint(x: x, y: size.height - y)
@@ -339,7 +429,7 @@ struct AnagramLayout {
     /// bow is a third of the distance across, kept between half a line and a
     /// line and a half.
     func arc(from: AnagramPlan.Slot, to: AnagramPlan.Slot, plan: AnagramPlan) -> Arc {
-        let a = centre(of: from, in: plan.fromLines), b = centre(of: to, in: plan.toLines)
+        let a = centre(of: from, answer: false), b = centre(of: to, answer: true)
         let dx = b.x - a.x
         let bow = dx == 0 ? 0 : min(max(abs(dx) / 3, lineHeight / 2), lineHeight * 1.5) * (dx > 0 ? 1 : -1)
         // A quadratic's control point sits twice as far out as its peak.

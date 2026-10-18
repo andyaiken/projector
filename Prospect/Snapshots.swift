@@ -104,6 +104,10 @@ enum Snapshots {
                 cue.sub = "Leonardo da Vinci! The Mona Lisa!"
             }
             save(console, "console-edit-anagram", to: directory)
+            // Its settings, set in a hand.
+            controller.setOverride(.font, to: .font("Noteworthy"), for: anagram)
+            console.showEditTab(1)
+            save(console, "console-cue-settings-anagram", to: directory)
         }
 
         // Prospect › Settings.

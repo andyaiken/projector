@@ -204,15 +204,17 @@ public struct TitleOverrides: Codable, Equatable, Sendable {
     public var histogram: Bool?
     public var sceneLine: Bool?
     public var letters: TitleLetters?
+    public var bars: TitleBars?
 
     public init(clockMs: Int? = nil, waveTicks: Int? = nil, holdTicks: Int? = nil, histogram: Bool? = nil, sceneLine: Bool? = nil,
-                letters: TitleLetters? = nil) {
+                letters: TitleLetters? = nil, bars: TitleBars? = nil) {
         self.clockMs = clockMs
         self.waveTicks = waveTicks
         self.holdTicks = holdTicks
         self.histogram = histogram
         self.sceneLine = sceneLine
         self.letters = letters
+        self.bars = bars
     }
 
     public var isEmpty: Bool { self == TitleOverrides() }
@@ -232,11 +234,14 @@ public struct AnagramOverrides: Codable, Equatable, Sendable {
     public var clockMs: Int?
     public var waveTicks: Int?
     public var holdTicks: Int?
+    /// A font family's name. Empty is the stage's own type.
+    public var font: String?
 
-    public init(clockMs: Int? = nil, waveTicks: Int? = nil, holdTicks: Int? = nil) {
+    public init(clockMs: Int? = nil, waveTicks: Int? = nil, holdTicks: Int? = nil, font: String? = nil) {
         self.clockMs = clockMs
         self.waveTicks = waveTicks
         self.holdTicks = holdTicks
+        self.font = font
     }
 
     public var isEmpty: Bool { self == AnagramOverrides() }

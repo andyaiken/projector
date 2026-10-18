@@ -19,9 +19,9 @@ struct AnagramTests {
 
     @Test("A long phrase splits at the space nearest its middle, as the book sets it")
     func lines() {
-        #expect(AnagramPlan.lines(Self.louvre.from) == ["O, DRACONIAN DEVIL!", "OH, LAME SAINT!"])
-        #expect(AnagramPlan.lines(Self.louvre.to) == ["LEONARDO DA VINCI!", "THE MONA LISA!"])
-        #expect(AnagramPlan.lines("  so dark   the con of man ") == ["SO DARK THE CON OF MAN"], "short enough for one line")
+        #expect(AnagramPlan.lines(Self.louvre.from) == ["O, Draconian devil!", "Oh, lame saint!"])
+        #expect(AnagramPlan.lines(Self.louvre.to) == ["Leonardo da Vinci!", "The Mona Lisa!"])
+        #expect(AnagramPlan.lines("  so dark   the con of man ") == ["so dark the con of man"], "short enough for one line, as typed")
         #expect(AnagramPlan.lines("") == [])
     }
 
@@ -40,13 +40,22 @@ struct AnagramTests {
     func likeLettersKeepOrder() {
         let p = plan(Self.louvre)
         func reading(_ s: AnagramPlan.Slot) -> Int { s.line * 100 + s.column }
-        for letter in Set(p.pieces.map(\.character)) {
-            let targets = p.pieces.filter { $0.character == letter && $0.travels }.compactMap(\.to).map(reading)
+        for letter in Set(p.pieces.map { $0.character.uppercased() }) {
+            let targets = p.pieces.filter { $0.character.uppercased() == letter && $0.travels }.compactMap(\.to).map(reading)
             #expect(targets == targets.sorted(), "\(letter)")
         }
-        // The first A of the puzzle, in DRACONIAN, lands in LEONARDO.
-        let a = p.pieces.first { $0.character == "A" }
+        // The first A of the puzzle, in Draconian, lands in Leonardo.
+        let a = p.pieces.first { $0.character == "a" }
         #expect(a?.from == .init(line: 0, column: 5) && a?.to == .init(line: 0, column: 4))
+    }
+
+    @Test("Letters match whatever their case, and land as the answer has them")
+    func caseChanges() {
+        let p = plan(Self.louvre)
+        // The l of devil is the first l, so it becomes the L of Leonardo.
+        let l = p.pieces.first { $0.from == .init(line: 0, column: 17) }
+        #expect(l?.character == "l" && l?.landing == "L" && l?.to == .init(line: 0, column: 0))
+        #expect(p.pieces.filter { $0.travels }.allSatisfy { $0.character.uppercased() == $0.landing.uppercased() })
     }
 
     @Test("Numbers in a new order move whole: 13 travels as 13")
@@ -112,9 +121,25 @@ struct AnagramTests {
         #expect(cue.finishes && !cue.isInstant)
     }
 
+    @Test("Font: the stage's own type unless a family is named, for the show or for one cue")
+    func font() throws {
+        #expect(ShowSettings().anagramFont == "")
+        #expect(SettingKey.font.format(.font("")) == "SF Mono" && SettingKey.font.format(.font("Marker Felt")) == "Marker Felt")
+        var cue = Cue(content: .anagram(AnagramContent(text: "A", answer: "A")))
+        SettingKey.font.setOverride(.font("Noteworthy"), in: &cue)
+        guard case .anagram(let content) = cue.content else { return }
+        #expect(ShowSettings().resolved(content.overrides).font == "Noteworthy")
+        let back = try JSONDecoder().decode(Cue.self, from: JSONEncoder().encode(cue))
+        #expect(SettingKey.font.override(in: back) == .font("Noteworthy"))
+        var s = ShowSettings()
+        SettingKey.font.set(.font("Chalkboard SE"), in: &s)
+        #expect(try JSONDecoder().decode(ShowSettings.self, from: JSONEncoder().encode(s)).anagramFont == "Chalkboard SE")
+        #expect(!SettingKey.font.applies(to: .title))
+    }
+
     @Test("An anagram overrides the timing, and runs on its own clock")
     func settings() {
-        #expect(SettingKey.allCases.filter { $0.applies(to: .anagram) } == [.clock, .wave, .hold, .transition, .fade])
+        #expect(SettingKey.allCases.filter { $0.applies(to: .anagram) } == [.clock, .wave, .hold, .font, .transition, .fade])
         var cue = Cue(content: .anagram(AnagramContent(text: "A", answer: "A")))
         SettingKey.hold.setOverride(.number(10), in: &cue)
         #expect(cue.timing(defaults: ShowSettings()) == CueTiming(clockMs: 44, holdTicks: 10, isInstant: false))
@@ -142,6 +167,7 @@ struct AnagramTests {
         #expect(dsm.rows[0].type == "Anagram")
         #expect(dsm.rows[0].content == ["SO DARK THE CON OF MAN", "\u{2192} MADONNA OF THE ROCKS"])
         let settings = CueSheet(show: show, title: "T", layout: .operatorSettings).rows[0].settings
-        #expect(settings.map(\.name) == ["Clock", "Wave", "Hold", "Transition", "Fade"])
+        #expect(settings.map(\.name) == ["Clock", "Wave", "Hold", "Font", "Transition", "Fade"])
+        #expect(settings[3].value == "SF Mono", "the stage's own type, by name")
     }
 }

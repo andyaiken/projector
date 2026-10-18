@@ -240,17 +240,16 @@ final class ConsoleWindowController: NSWindowController, NSWindowDelegate, NSTex
             warning.frame = NSRect(x: x, y: y, width: width, height: h)
             y += h + 14
         }
-        previewHeading.frame = NSRect(x: x, y: y, width: width, height: 18)
-        y += 27
+        let headingHeight: CGFloat = 27
         // Edit mode: one panel at a time beneath the preview, chosen by the
         // tabs. Every panel gets the same height, so the preview doesn't jump
         // as the tabs change.
         let editing = controller.mode == .edit
         tabs.isHidden = !editing
         for (i, panel) in editPanels.enumerated() { panel.isHidden = !editing || i != tabs.selectedSegment }
-        var available = bottom - 16 - y
+        var available = bottom - 16 - y - headingHeight
         if editing {
-            let h = [geometry.preferredHeight, editor.preferredHeight, showDefaults.preferredHeight, cueSettings.preferredHeight].max() ?? 0
+            let h = [geometry.preferredHeight, editor.preferredHeight, showDefaults.preferredHeight(width: width), cueSettings.preferredHeight].max() ?? 0
             let panelFrame = NSRect(x: x, y: bottom - 16 - h, width: width, height: h)
             for panel in editPanels { panel.frame = panelFrame }
             let tabsSize = tabs.fittingSize
@@ -262,7 +261,10 @@ final class ConsoleWindowController: NSWindowController, NSWindowDelegate, NSTex
             h = max(available, 0)
             w = (h * previewAspect).rounded()
         }
-        previewFrame.frame = NSRect(x: x, y: y, width: w, height: h)
+        // Centred in the space left, its heading just above its corner.
+        let left = x + ((width - w) / 2).rounded(), blockTop = y + ((available - h) / 2).rounded()
+        previewHeading.frame = NSRect(x: left, y: blockTop, width: w, height: 18)
+        previewFrame.frame = NSRect(x: left, y: blockTop + headingHeight, width: w, height: h)
         preview.frame = previewFrame.bounds.insetBy(dx: 1, dy: 1)
     }
 

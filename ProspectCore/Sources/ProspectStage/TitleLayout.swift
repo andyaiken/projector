@@ -16,11 +16,15 @@ struct TitleLayout {
 
     let size: CGSize
 
-    // The place name: one glyph per cell.
+    // The place name: one glyph per cell, on one line or, when it is long,
+    // on several, every cell the same size.
     let titleFont: CTFont
-    let titleLine: CGRect
+    let titleLines: [CGRect]
     let titleBaseline: CGFloat
     let pitch: CGFloat
+
+    /// The title's first line, and for most titles its only one.
+    var titleLine: CGRect { titleLines[0] }
 
     // The scene line: tracked out by a quarter of an em.
     let sceneFont: CTFont
@@ -41,17 +45,26 @@ struct TitleLayout {
     let axisBaseline: CGFloat
 
     init(size: CGSize, titleCount: Int, sceneCount: Int, showsScene: Bool, histogram: Bool, textScale: Int, vmin: CGFloat? = nil) {
+        self.init(size: size, titleLines: [titleCount], sceneCount: sceneCount, showsScene: showsScene, histogram: histogram,
+                  textScale: textScale, vmin: vmin)
+    }
+
+    /// - Parameter titleLines: How many characters each line of the title
+    ///   has.
+    init(size: CGSize, titleLines lengths: [Int], sceneCount: Int, showsScene: Bool, histogram: Bool, textScale: Int, vmin: CGFloat? = nil) {
         self.size = size
         let W = size.width, H = size.height
         let vmin = vmin ?? min(W, H) / 100
         let padding = 4 * vmin
-        let n = CGFloat(max(titleCount, 1))
+        let lengths = lengths.isEmpty ? [0] : lengths
+        let n = CGFloat(max(lengths.max() ?? 0, 1)), rows = CGFloat(lengths.count)
 
-        // Title size: the largest that fits 88% of the width, capped at 28%
-        // of the height, then scaled by the show's text size. The line is
+        // Title size: the largest that fits its longest line in 88% of the
+        // width, capped at 28% of the height, and with several lines at 62%
+        // for all of them; then scaled by the show's text size. A line is
         // never wider than 90% of the plate inside its padding; past that the
         // cells close up.
-        let fontSize = max(9, min(W * 0.88 / (n * Self.cellEms), H * 0.28) * CGFloat(textScale) / 100)
+        let fontSize = max(9, min(W * 0.88 / (n * Self.cellEms), H * 0.28, H * 0.62 / (rows * 1.05)) * CGFloat(textScale) / 100)
         let columnWidth = min((n * fontSize * Self.cellEms).rounded(), (W - 2 * padding) * 0.9)
         pitch = columnWidth / n
         titleFont = StageFont.title(size: fontSize)
@@ -86,11 +99,18 @@ struct TitleLayout {
 
         // The plate takes the rest, and centres the title and scene line in it.
         let plate = CGRect(x: 0, y: 0, width: W, height: panelTop).insetBy(dx: padding, dy: padding)
-        let blockHeight = titleLineHeight + (showsScene ? sceneGap + sceneLineHeight : 0)
+        let lineGap = fontSize * 0.12
+        let titleHeight = rows * titleLineHeight + (rows - 1) * lineGap
+        let blockHeight = titleHeight + (showsScene ? sceneGap + sceneLineHeight : 0)
         let blockTop = plate.minY + (plate.height - blockHeight) / 2
-        titleLine = CGRect(x: (W - columnWidth) / 2, y: blockTop, width: columnWidth, height: titleLineHeight)
+        let pitch = self.pitch
+        titleLines = lengths.enumerated().map { k, length in
+            let width = CGFloat(max(length, 1)) * pitch
+            return CGRect(x: (W - width) / 2, y: blockTop + CGFloat(k) * (titleLineHeight + lineGap), width: width, height: titleLineHeight)
+        }
         let sceneWidth = CGFloat(sceneCount) * scenePitch
-        sceneLine = CGRect(x: (W - sceneWidth) / 2, y: titleLine.maxY + sceneGap, width: sceneWidth, height: sceneLineHeight)
+        sceneLine = CGRect(x: (W - sceneWidth) / 2, y: titleLines[titleLines.count - 1].maxY + sceneGap, width: sceneWidth,
+                           height: sceneLineHeight)
     }
 
     /// The left edge of title cell `i`, within the title line.

@@ -95,10 +95,14 @@ public struct ShowSettings: Equatable, Sendable {
     public var histogram = true
     public var sceneLine = true
     public var letters = TitleLetters.cycle
+    public var bars = TitleBars.letters
     public var gridColumns = 12
     public var flipMs = 420
     public var order = TileOrder.diagonal
     public var reveal = TileReveal.flip
+    /// The font family anagram letters are set in. Empty is the stage's own
+    /// type, SF Mono.
+    public var anagramFont = ""
     /// How the stage changes to each cue, and how long each fade takes.
     public var transition = Transition.standard.style
     public var fadeMs = Transition.standard.fadeMs
@@ -119,12 +123,14 @@ public struct ShowSettings: Equatable, Sendable {
             holdTicks: o.holdTicks ?? holdTicks,
             histogram: o.histogram ?? histogram,
             sceneLine: o.sceneLine ?? sceneLine,
-            letters: o.letters ?? letters
+            letters: o.letters ?? letters,
+            bars: o.bars ?? bars
         )
     }
 
     public func resolved(_ o: AnagramOverrides) -> AnagramSettings {
-        AnagramSettings(clockMs: o.clockMs ?? clockMs, waveTicks: o.waveTicks ?? waveTicks, holdTicks: o.holdTicks ?? holdTicks)
+        AnagramSettings(clockMs: o.clockMs ?? clockMs, waveTicks: o.waveTicks ?? waveTicks, holdTicks: o.holdTicks ?? holdTicks,
+                        font: o.font ?? anagramFont)
     }
 
     public func resolved(_ o: ImageOverrides) -> ImageSettings {
@@ -148,14 +154,17 @@ public struct TitleSettings: Equatable, Sendable {
     public var histogram: Bool
     public var sceneLine: Bool
     public var letters: TitleLetters
+    public var bars: TitleBars
 
-    public init(clockMs: Int, waveTicks: Int, holdTicks: Int, histogram: Bool, sceneLine: Bool, letters: TitleLetters = .cycle) {
+    public init(clockMs: Int, waveTicks: Int, holdTicks: Int, histogram: Bool, sceneLine: Bool, letters: TitleLetters = .cycle,
+                bars: TitleBars = .letters) {
         self.clockMs = clockMs
         self.waveTicks = waveTicks
         self.holdTicks = holdTicks
         self.histogram = histogram
         self.sceneLine = sceneLine
         self.letters = letters
+        self.bars = bars
     }
 }
 
@@ -164,11 +173,14 @@ public struct AnagramSettings: Equatable, Sendable {
     public var clockMs: Int
     public var waveTicks: Int
     public var holdTicks: Int
+    /// A font family's name. Empty is the stage's own type.
+    public var font: String
 
-    public init(clockMs: Int, waveTicks: Int, holdTicks: Int) {
+    public init(clockMs: Int, waveTicks: Int, holdTicks: Int, font: String = "") {
         self.clockMs = clockMs
         self.waveTicks = waveTicks
         self.holdTicks = holdTicks
+        self.font = font
     }
 }
 
@@ -240,8 +252,8 @@ extension ClosedRange where Bound == Int {
 
 extension ShowSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case clockMs, waveTicks, holdTicks, histogram, sceneLine, letters, gridColumns, flipMs, order
-        case reveal, transition, fadeMs, textScale, geometry, projector
+        case clockMs, waveTicks, holdTicks, histogram, sceneLine, letters, bars, gridColumns, flipMs, order
+        case reveal, anagramFont, transition, fadeMs, textScale, geometry, projector
     }
 
     public init(from decoder: Decoder) throws {
@@ -256,10 +268,12 @@ extension ShowSettings: Codable {
         histogram = try c.decodeIfPresent(Bool.self, forKey: .histogram) ?? d.histogram
         sceneLine = try c.decodeIfPresent(Bool.self, forKey: .sceneLine) ?? d.sceneLine
         letters = try c.decodeIfPresent(TitleLetters.self, forKey: .letters) ?? d.letters
+        bars = try c.decodeIfPresent(TitleBars.self, forKey: .bars) ?? d.bars
         gridColumns = try int(.gridColumns, d.gridColumns, SettingRange.gridColumns)
         flipMs = try int(.flipMs, d.flipMs, SettingRange.flipMs)
         order = try c.decodeIfPresent(TileOrder.self, forKey: .order) ?? d.order
         reveal = try c.decodeIfPresent(TileReveal.self, forKey: .reveal) ?? d.reveal
+        anagramFont = try c.decodeIfPresent(String.self, forKey: .anagramFont) ?? d.anagramFont
         transition = try c.decodeIfPresent(TransitionStyle.self, forKey: .transition) ?? d.transition
         fadeMs = try int(.fadeMs, d.fadeMs, SettingRange.fadeMs)
         textScale = try int(.textScale, d.textScale, SettingRange.textScale)
@@ -275,10 +289,12 @@ extension ShowSettings: Codable {
         try c.encode(histogram, forKey: .histogram)
         try c.encode(sceneLine, forKey: .sceneLine)
         try c.encode(letters, forKey: .letters)
+        try c.encode(bars, forKey: .bars)
         try c.encode(gridColumns, forKey: .gridColumns)
         try c.encode(flipMs, forKey: .flipMs)
         try c.encode(order, forKey: .order)
         try c.encode(reveal, forKey: .reveal)
+        try c.encode(anagramFont, forKey: .anagramFont)
         try c.encode(transition, forKey: .transition)
         try c.encode(fadeMs, forKey: .fadeMs)
         try c.encode(textScale, forKey: .textScale)

@@ -43,7 +43,9 @@ public final class TitleRenderer: CueRenderer {
     final class Tree {
         let surface: SurfaceLayer
         let root = StillLayer()
-        let title = TextLayer()
+        /// A layer per line of the title.
+        var titleLines = [TextLayer()]
+        var title: TextLayer { titleLines[0] }
         let scene = TextLayer()
         let panel = StillLayer()
         let readouts = TextLayer()
@@ -97,7 +99,7 @@ public final class TitleRenderer: CueRenderer {
         reveal = nil
         current = nil
         guard let tree = trees[ObjectIdentifier(surface)] else { return }
-        tree.title.runs = []
+        tree.titleLines.forEach { $0.runs = [] }
         tree.scene.runs = []
         tree.readouts.runs = []
         for bar in tree.bars {
@@ -140,7 +142,7 @@ public final class TitleRenderer: CueRenderer {
 
         let layout = TitleLayout(
             size: size,
-            titleCount: reveal?.titlePlan.characters.count ?? 0,
+            titleLines: reveal?.titleLines.map(\.count) ?? [0],
             sceneCount: reveal?.scenePlan.characters.count ?? 0,
             showsScene: reveal?.showsScene ?? false,
             histogram: reveal?.histogram ?? true,
@@ -151,16 +153,25 @@ public final class TitleRenderer: CueRenderer {
         let H = size.height
         let scale = surface.contentsScale
         tree.root.frame = CGRect(origin: .zero, size: size)
-        for layer in [tree.title, tree.scene, tree.readouts, tree.axis] { layer.contentsScale = scale }
+        // One text layer for each line of the title.
+        while tree.titleLines.count < layout.titleLines.count {
+            let line = TextLayer()
+            tree.root.insertSublayer(line, above: tree.titleLines.last)
+            tree.titleLines.append(line)
+        }
+        while tree.titleLines.count > layout.titleLines.count { tree.titleLines.removeLast().removeFromSuperlayer() }
+        for layer in tree.titleLines + [tree.scene, tree.readouts, tree.axis] { layer.contentsScale = scale }
 
-        tree.title.frame = layout.titleLine.flipped(within: H)
-        tree.title.baseline = layout.titleLine.height - layout.titleBaseline
+        for (line, rect) in zip(tree.titleLines, layout.titleLines) {
+            line.frame = rect.flipped(within: H)
+            line.baseline = rect.height - layout.titleBaseline
+        }
         tree.scene.frame = layout.sceneLine.flipped(within: H)
         tree.scene.baseline = layout.sceneLine.height - layout.sceneBaseline
         // Letters on dials roll through a window the height of their line,
         // softened at its top and bottom edges.
         let dials = reveal?.letters == .dials
-        tree.title.mask = dials ? Self.window(tree.title.bounds) : nil
+        for line in tree.titleLines { line.mask = dials ? Self.window(line.bounds) : nil }
         tree.scene.mask = dials ? Self.window(tree.scene.bounds) : nil
         tree.scene.isHidden = !(reveal?.showsScene ?? false)
 
@@ -171,8 +182,12 @@ public final class TitleRenderer: CueRenderer {
         tree.readouts.baseline = layout.readoutLine.height - layout.readoutBaseline
         tree.axis.frame = layout.axisLine.flipped(within: H)
         tree.axis.baseline = layout.axisLine.height - layout.axisBaseline
-        tree.axis.runs = Cipher.alphabet.enumerated().map { i, letter in
-            TextRun(text: String(letter).lowercased(), font: layout.axisFont, colour: Palette.slate.cgColor,
+        // A to Z, or the 26 commonest digraphs, each over its expected share.
+        let digraphs = reveal?.bars == .digraphs
+        let labels = digraphs ? English.digraphs : Cipher.alphabet.map(String.init)
+        let ghostHeights = digraphs ? English.digraphGhostHeights : English.ghostHeights
+        tree.axis.runs = labels.enumerated().map { i, label in
+            TextRun(text: label.lowercased(), font: layout.axisFont, colour: Palette.slate.cgColor,
                     x: layout.barX(i), cell: layout.barWidth)
         }
 
@@ -181,7 +196,7 @@ public final class TitleRenderer: CueRenderer {
             let x = layout.bars.minX + layout.barX(i)
             // The ghost is the 2px top border of a box as tall as English
             // expects; CSS never lets that box be shorter than its border.
-            let ghostTop = max(layout.bars.height * English.ghostHeights[i] / 100, 2)
+            let ghostTop = max(layout.bars.height * ghostHeights[i] / 100, 2)
             tree.ghosts[i].frame = CGRect(x: x, y: barsBottom + ghostTop - 2, width: layout.barWidth, height: 2)
             tree.bars[i].bounds = CGRect(x: 0, y: 0, width: layout.barWidth, height: tree.bars[i].bounds.height)
             tree.bars[i].position = CGPoint(x: x + layout.barWidth / 2, y: barsBottom)
@@ -195,9 +210,14 @@ public final class TitleRenderer: CueRenderer {
     private func paint(_ frame: TitleFrame, on tree: Tree, animated: Bool) {
         guard let layout = tree.layout else { return }
 
-        tree.title.runs = frame.title.enumerated().flatMap { i, g in
-            Self.runs(for: g, font: layout.titleFont, alpha: 1, x: layout.titleCell(i), cell: layout.pitch,
-                      row: layout.titleLine.height)
+        // Each line of the title in its own layer; the space a long title
+        // wraps at is drawn on neither.
+        let lines = reveal?.titleLines ?? [0..<frame.title.count]
+        for (layer, range) in zip(tree.titleLines, lines) {
+            layer.runs = range.clamped(to: frame.title.indices).enumerated().flatMap { column, i in
+                Self.runs(for: frame.title[i], font: layout.titleFont, alpha: 1, x: layout.titleCell(column), cell: layout.pitch,
+                          row: layout.titleLine.height)
+            }
         }
         // The scene line is drawn at 70% opacity, a step behind the place.
         tree.scene.runs = frame.scene.enumerated().flatMap { i, g in

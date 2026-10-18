@@ -17,6 +17,20 @@ public enum StageFont {
         NSFont.monospacedSystemFont(ofSize: size, weight: .regular) as CTFont
     }
 
+    /// An anagram's type: the regular face of a font family, or the title
+    /// type when none is named or this Mac doesn't have it.
+    public static func anagram(family: String, size: CGFloat) -> CTFont {
+        guard !family.isEmpty, let font = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size) else {
+            return title(size: size)
+        }
+        return font as CTFont
+    }
+
+    /// Whether this Mac has a font family.
+    public static func has(family: String) -> Bool {
+        NSFontManager.shared.availableFontFamilies.contains(family)
+    }
+
     /// Everything a title can show while it travels: the 45-glyph ring and
     /// the open box drawn for an unsettled space. If any of these were
     /// missing, a fallback font of a different width would make the line
