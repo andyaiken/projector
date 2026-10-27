@@ -89,8 +89,8 @@ struct ShowCodingTests {
     }
 
     @Test func refusesNewerFormats() {
-        #expect(throws: ShowFormatError.newerVersion(2)) {
-            try Show(jsonData: Data(#"{ "version": 2, "cues": [] }"#.utf8))
+        #expect(throws: ShowFormatError.newerVersion(3)) {
+            try Show(jsonData: Data(#"{ "version": 3, "cues": [] }"#.utf8))
         }
     }
 

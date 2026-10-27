@@ -9,6 +9,7 @@ public enum SettingValue: Equatable, Sendable {
     /// A font family's name; empty for the stage's own type.
     case font(String)
     case style(TransitionStyle)
+    case advance(AnagramAdvance)
 }
 
 /// Every setting a show holds a default for, and that a cue may override.
@@ -16,12 +17,12 @@ public enum SettingValue: Equatable, Sendable {
 /// and the printed sheet: its range and step, how it reads, and where it
 /// lives in the model.
 public enum SettingKey: String, CaseIterable, Sendable {
-    case clock, wave, hold, textScale, histogram, sceneLine, letters, bars, grid, flip, order, reveal, font, transition, fade
+    case clock, wave, hold, textScale, histogram, sceneLine, letters, bars, grid, flip, order, reveal, advance, pause, font, transition, fade
 
     /// What a title cue can override.
     public static let title: [SettingKey] = [.clock, .wave, .hold, .histogram, .sceneLine, .letters, .bars]
     /// What an anagram cue can override.
-    public static let anagram: [SettingKey] = [.clock, .wave, .hold, .font]
+    public static let anagram: [SettingKey] = [.clock, .wave, .hold, .advance, .pause, .font]
     /// What an image cue can override.
     public static let image: [SettingKey] = [.clock, .wave, .hold, .grid, .flip, .order, .reveal]
     /// The transition into a cue, which every cue can override.
@@ -31,7 +32,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
         ("Timing", [.clock, .wave, .hold]),
         ("Decryption cues", [.textScale, .histogram, .sceneLine, .letters, .bars]),
         ("Image cues", [.grid, .flip, .order, .reveal]),
-        ("Anagram cues", [.font]),
+        ("Anagram cues", [.advance, .pause, .font]),
         ("Transitions", transitions),
     ]
 
@@ -49,6 +50,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case .flip: "Flip"
         case .order: "Order"
         case .reveal: "Reveal by"
+        case .advance: "Advance"
+        case .pause: "Pause"
         case .font: "Font"
         case .transition: "Transition"
         case .fade: "Fade"
@@ -66,6 +69,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case .histogram: "The letter-frequency bars and readouts beneath the text."
         case .sceneLine: "The smaller line of text beneath the main one."
         case .bars: "What the histogram counts: single letters, or the commonest pairs of letters, which tell more on a long text."
+        case .advance: "Whether an anagram cue moves on through its working and from one anagram to the next by itself, a pause apart, or waits for GO: before each anagram, or before every step. GO carries the cue on rather than firing the next one."
+        case .pause: "How many steps of the clock an anagram rests on each step of its working, and once solved, before the next moves."
         case .font: "The typeface an anagram is set in. Each letter keeps its own shape as it travels, so a printed hand suits; a joined-up script loses its joins."
         case .letters: "How each letter finds its way home: cycling through random glyphs and rolling back into place, or spinning on a dial, like a cryptex's, and settling."
         case .grid: "How many tiles across the picture is cut into."
@@ -108,6 +113,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case .histogram, .sceneLine: .toggle
         case .order: .choice(["Diagonal sweep", "Random", "Golden spiral"])
         case .reveal: .choice(["Flipping", "Sharpening"])
+        case .advance: .choice(["By itself", "Each anagram on GO", "Each step on GO"])
+        case .pause: .slider(SettingRange.pauseTicks, step: 2)
         case .letters: .choice(["Cycling", "Dials"])
         case .bars: .choice(["Letters", "Digraphs"])
         case .font: .font
@@ -121,6 +128,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
         switch self {
         case .order: [SettingValue.order(.diagonal), .order(.random), .order(.spiral)][safe: index]
         case .reveal: [SettingValue.reveal(.flip), .reveal(.sharpen)][safe: index]
+        case .advance: [SettingValue.advance(.byItself), .advance(.eachAnagram), .advance(.eachStep)][safe: index]
         case .letters: [SettingValue.letters(.cycle), .letters(.dials)][safe: index]
         case .bars: [SettingValue.bars(.letters), .bars(.digraphs)][safe: index]
         case .transition: [SettingValue.style(.fade), .style(.snap)][safe: index]
@@ -138,7 +146,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
     public func format(_ value: SettingValue) -> String {
         switch (self, value) {
         case (.clock, .number(let n)), (.flip, .number(let n)): "\(n) ms"
-        case (.wave, .number(let n)), (.hold, .number(let n)): n == 0 ? "none" : "\(n)"
+        case (.wave, .number(let n)), (.hold, .number(let n)), (.pause, .number(let n)): n == 0 ? "none" : "\(n)"
         case (.textScale, .number(let n)): "\(n)%"
         case (.fade, .number(let n)): fixedDecimal(Double(n) / 1000, digits: 1) + " s"
         case (.grid, .number(let n)): "\(n) wide"
@@ -151,6 +159,9 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case (_, .bars(let bars)): bars == .letters ? "letters" : "digraphs"
         case (_, .font(let family)): family.isEmpty ? Self.stageFont : family
         case (_, .style(let style)): style == .fade ? "fade through black" : "snap"
+        case (_, .advance(.byItself)): "by itself"
+        case (_, .advance(.eachAnagram)): "each anagram on GO"
+        case (_, .advance(.eachStep)): "each step on GO"
         case (_, .number(let n)): "\(n)"
         }
     }
@@ -178,6 +189,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case .flip: .number(s.flipMs)
         case .order: .order(s.order)
         case .reveal: .reveal(s.reveal)
+        case .advance: .advance(s.advance)
+        case .pause: .number(s.pauseTicks)
         case .font: .font(s.anagramFont)
         case .transition: .style(s.transition)
         case .fade: .number(s.fadeMs)
@@ -198,6 +211,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
         case (.flip, .number(let n)): s.flipMs = n
         case (.order, .order(let order)): s.order = order
         case (.reveal, .reveal(let reveal)): s.reveal = reveal
+        case (.advance, .advance(let advance)): s.advance = advance
+        case (.pause, .number(let n)): s.pauseTicks = n
         case (.font, .font(let family)): s.anagramFont = family
         case (.transition, .style(let style)): s.transition = style
         case (.fade, .number(let n)): s.fadeMs = n
@@ -245,6 +260,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
             case .clock: return o.clockMs.map(SettingValue.number)
             case .wave: return o.waveTicks.map(SettingValue.number)
             case .hold: return o.holdTicks.map(SettingValue.number)
+            case .advance: return o.advance.map(SettingValue.advance)
+            case .pause: return o.pauseTicks.map(SettingValue.number)
             case .font: return o.font.map(SettingValue.font)
             default: return nil
             }
@@ -277,6 +294,7 @@ public enum SettingKey: String, CaseIterable, Sendable {
         func font() -> String? { if case .font(let f) = value { f } else { nil } }
         func bars() -> TitleBars? { if case .bars(let b) = value { b } else { nil } }
         func style() -> TransitionStyle? { if case .style(let s) = value { s } else { nil } }
+        func advance() -> AnagramAdvance? { if case .advance(let a) = value { a } else { nil } }
         switch self {
         case .transition:
             cue.transition.style = style()
@@ -304,6 +322,8 @@ public enum SettingKey: String, CaseIterable, Sendable {
             case .clock: c.overrides.clockMs = number()
             case .wave: c.overrides.waveTicks = number()
             case .hold: c.overrides.holdTicks = number()
+            case .advance: c.overrides.advance = advance()
+            case .pause: c.overrides.pauseTicks = number()
             case .font: c.overrides.font = font()
             default: return
             }

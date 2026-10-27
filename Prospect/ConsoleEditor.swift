@@ -5,7 +5,7 @@ import ProspectStage
 /// Edit mode's cue editor. It edits the cue standing by: click a cue in the
 /// list to edit it. Every change goes through the show controller as one
 /// undoable edit.
-final class CueEditorPanel: PanelView, NSTextFieldDelegate {
+final class CueEditorPanel: PanelView, NSTextFieldDelegate, NSTextViewDelegate {
     weak var controller: ShowController?
     var importMedia: (URL, UUID) -> Void = { _, _ in }
     var chooseMedia: (UUID) -> Void = { _ in }
@@ -33,6 +33,14 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
     private let sub = CueEditorPanel.field(mono: true)
     private let keyLabel = Desk.label("Key", font: Desk.sans(12.5), colour: Desk.dim)
     private let key = CueEditorPanel.field(mono: true)
+    /// An anagram cue's anagrams, a paragraph each.
+    private let anagramsLabel = Desk.label("Anagrams", font: Desk.sans(12.5), colour: Desk.dim)
+    private let anagrams = ParagraphsView()
+    /// The anagram cue the text box is being edited for, so a change lands on
+    /// it even if another cue stands by before editing ends.
+    private var anagramsCue: UUID?
+    /// Escape puts the text back, and nothing is saved as editing ends.
+    private var revertingAnagrams = false
 
     private let mediaLabel = Desk.label("", font: Desk.sans(12.5), colour: Desk.dim)
     private let well = MediaWell()
@@ -49,8 +57,12 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         // Tab goes down what the cue shows, then where it comes in the book,
         // and round again. AppKit skips hidden fields, so one chain serves
         // every kind of cue.
-        let order = [text, sub, key, number, line, continueSeconds]
+        let order: [NSView] = [text, sub, key, anagrams.text, number, line, continueSeconds]
         for (field, next) in zip(order, order.dropFirst() + [order[0]]) { field.nextKeyView = next }
+        anagrams.text.delegate = self
+        anagrams.text.hint = "The phrase on the first line, the answer on the last, and any working between. A blank line starts another anagram, solved after this one. One line alone is solved already; ~ before a phrase leaves it unsolved."
+        anagrams.text.toolTip = "Each anagram is a paragraph: its phrase, then any working, a step to a line, then its answer. Working may be partial or wrong; the letters a step doesn\u{2019}t use dim beneath it. A paragraph of one line stands solved from the start, and one whose phrase starts with ~ stands unsolved; the cue skips both. Return starts a new line; Tab moves on, and Escape puts it back as it was."
+
         for (button, action) in [(choose, #selector(choosePressed)), (removeMedia, #selector(removePressed))] {
             button.target = self
             button.action = action
@@ -75,7 +87,7 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         }
         let views: [NSView] = [heading, empty, numberLabel, number, lineLabel, line,
                                continueLabel, continueMode, continueSeconds, secondsLabel,
-                               textLabel, text, subLabel, sub, keyLabel, key, mediaLabel, well, choose, removeMedia,
+                               textLabel, text, subLabel, sub, keyLabel, key, anagramsLabel, anagrams, mediaLabel, well, choose, removeMedia,
                                atEndLabel, atEnd, colourLabel, colour]
         views.forEach(addSubview)
     }
@@ -120,10 +132,14 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         self.cue = cue
         let kind = cue?.kind
         empty.isHidden = cue != nil
-        for view in [numberLabel, number, lineLabel, line, continueLabel, continueMode, textLabel, text] as [NSView] {
+        for view in [numberLabel, number, lineLabel, line, continueLabel, continueMode] as [NSView] {
             view.isHidden = cue == nil
         }
-        subLabel.isHidden = kind == nil || kind == .blank || kind == .image
+        textLabel.isHidden = kind == nil || kind == .anagram
+        text.isHidden = textLabel.isHidden
+        anagramsLabel.isHidden = kind != .anagram
+        anagrams.isHidden = anagramsLabel.isHidden
+        subLabel.isHidden = kind == nil || kind == .blank || kind == .image || kind == .anagram
         sub.isHidden = subLabel.isHidden
         keyLabel.isHidden = kind != .title
         key.isHidden = keyLabel.isHidden
@@ -163,9 +179,11 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
             textLabel.stringValue = "Text"
             subLabel.stringValue = "Subtext"
             set(key, c.key)
-        case .anagram:
-            textLabel.stringValue = "Phrase"
-            subLabel.stringValue = "Answer"
+        case .anagram(let c):
+            if anagrams.text.window?.firstResponder !== anagrams.text {
+                let paragraphs = Anagram.paragraphs(c.anagrams)
+                if anagrams.text.string != paragraphs { anagrams.text.string = paragraphs }
+            }
         case .image(let c):
             textLabel.stringValue = "Label"
             mediaLabel.stringValue = "Picture"
@@ -201,16 +219,10 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         case line:
             controller.updateCue(cue.id, "Change Cue Point") { $0.line = value }
         case text:
-            let name = switch cue.kind {
-            case .title: "Change Text"
-            case .anagram: "Change Phrase"
-            default: "Change Label"
-            }
-            controller.updateCue(cue.id, name) { $0.text = value }
+            controller.updateCue(cue.id, cue.kind == .title ? "Change Text" : "Change Label") { $0.text = value }
         case sub:
             let name = switch cue.kind {
             case .title: "Change Subtext"
-            case .anagram: "Change Answer"
             default: "Change Caption"
             }
             controller.updateCue(cue.id, name) { $0.sub = value }
@@ -247,6 +259,45 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
             // Put the field back as it was, then leave it.
             if let field = control as? NSTextField { field.abortEditing() }
             update(cue: cue)
+            finishedEditing()
+            return true
+        default:
+            return false
+        }
+    }
+
+    // MARK: Anagrams
+
+    func textDidBeginEditing(_ notification: Notification) {
+        anagramsCue = cue?.id
+    }
+
+    /// The text box read back into anagrams, as one edit.
+    func textDidEndEditing(_ notification: Notification) {
+        defer {
+            anagramsCue = nil
+            revertingAnagrams = false
+        }
+        guard !revertingAnagrams, let id = anagramsCue ?? cue?.id else { return }
+        let read = Anagram.anagrams(fromParagraphs: anagrams.text.string)
+        controller?.updateCue(id, "Change Anagrams") { cue in
+            if case .anagram(var c) = cue.content { c.anagrams = read; cue.content = .anagram(c) }
+        }
+    }
+
+    /// Return starts a new line, as a paragraph needs. Tab moves on, and
+    /// Escape puts the text back and gives the keyboard to the show keys.
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertTab(_:)):
+            window?.selectKeyView(following: textView)
+            return true
+        case #selector(NSResponder.insertBacktab(_:)):
+            window?.selectKeyView(preceding: textView)
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            revertingAnagrams = true
+            if case .anagram(let c) = cue?.content { textView.string = Anagram.paragraphs(c.anagrams) }
             finishedEditing()
             return true
         default:
@@ -303,10 +354,12 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
     /// The fields Tab visits from the first, in order, for checking the
     /// key view loop without a keyboard.
     var tabStops: [String] {
-        let names: [NSView: String] = [text: "text", sub: "sub", key: "key", number: "number", line: "line", continueSeconds: "seconds"]
-        var stops = [names[text] ?? "?"]
-        var view: NSView? = text.nextValidKeyView
-        while let v = view, v !== text, stops.count < 10 {
+        let names: [NSView: String] = [text: "text", sub: "sub", key: "key", anagrams.text: "anagrams", number: "number", line: "line",
+                                       continueSeconds: "seconds"]
+        let first: NSView = text.isHidden ? anagrams.text : text
+        var stops = [names[first] ?? "?"]
+        var view: NSView? = first.nextValidKeyView
+        while let v = view, v !== first, stops.count < 10 {
             stops.append(names[v] ?? "?")
             view = v.nextValidKeyView
         }
@@ -341,7 +394,13 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
             row(label, control, x: x, y: ly, width: leftWidth, controlWidth: controlWidth)
             ly += 32
         }
-        left(textLabel, text)
+        if !text.isHidden { left(textLabel, text) }
+        if !anagrams.isHidden {
+            // The whole column: four rows' room for the paragraphs.
+            anagramsLabel.frame = NSRect(x: x, y: ly + 3, width: labelWidth - 6, height: 18)
+            anagrams.frame = NSRect(x: x + labelWidth, y: ly, width: leftWidth - labelWidth, height: 4 * 32 - 8)
+            ly += 4 * 32
+        }
         if !sub.isHidden { left(subLabel, sub) }
         if !key.isHidden { left(keyLabel, key) }
         if !well.isHidden {
@@ -364,6 +423,76 @@ final class CueEditorPanel: PanelView, NSTextFieldDelegate {
         continueMode.frame = NSRect(x: rightX + labelWidth, y: continueY, width: popupWidth, height: 24)
         continueSeconds.frame = NSRect(x: continueMode.frame.maxX + 8, y: continueY, width: 56, height: 24)
         secondsLabel.frame = NSRect(x: continueSeconds.frame.maxX + 6, y: continueY + 3, width: 70, height: 18)
+    }
+}
+
+/// A box of several lines of text, for an anagram cue's paragraphs: dark,
+/// monospaced, and scrolling once it is full.
+final class ParagraphsView: NSScrollView {
+    let text = HintTextView(frame: .zero)
+
+    init() {
+        super.init(frame: .zero)
+        hasVerticalScroller = true
+        autohidesScrollers = true
+        borderType = .noBorder
+        drawsBackground = true
+        backgroundColor = Desk.sunk
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        layer?.borderWidth = 1
+        layer?.borderColor = Desk.lineBright.cgColor
+        text.isRichText = false
+        text.importsGraphics = false
+        // Only whole edits go on the undo stack, not keystrokes.
+        text.allowsUndo = false
+        text.font = Desk.mono(12.5)
+        text.textColor = Desk.text
+        text.insertionPointColor = Desk.text
+        text.backgroundColor = Desk.sunk
+        text.isAutomaticQuoteSubstitutionEnabled = false
+        text.isAutomaticDashSubstitutionEnabled = false
+        text.isAutomaticTextReplacementEnabled = false
+        text.isAutomaticSpellingCorrectionEnabled = false
+        text.isContinuousSpellCheckingEnabled = false
+        text.textContainerInset = NSSize(width: 4, height: 5)
+        text.isVerticallyResizable = true
+        text.isHorizontallyResizable = false
+        text.autoresizingMask = [.width]
+        text.textContainer?.widthTracksTextView = true
+        text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        documentView = text
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        text.minSize = NSSize(width: contentSize.width, height: contentSize.height)
+        text.frame.size.width = contentSize.width
+    }
+}
+
+/// A text view that says what goes in it while it is empty, dim and italic,
+/// as the editor's fields do.
+final class HintTextView: NSTextView {
+    var hint = "" { didSet { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !hint.isEmpty else { return }
+        let padding = textContainer?.lineFragmentPadding ?? 0
+        NSAttributedString(string: hint, attributes: [
+            .foregroundColor: Desk.dim.withAlphaComponent(0.7),
+            .font: NSFontManager.shared.convert(Desk.sans(12.5), toHaveTrait: .italicFontMask),
+        ]).draw(in: bounds.insetBy(dx: textContainerInset.width + padding, dy: textContainerInset.height))
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true
     }
 }
 

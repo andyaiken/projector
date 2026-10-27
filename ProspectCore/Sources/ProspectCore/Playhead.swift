@@ -7,6 +7,11 @@ import Foundation
 /// returns a `Fire` for the app to act on. Everything else only moves the
 /// standby cue. Cues are tracked by `id`, so editing the sheet can't make the
 /// playhead point at a different cue.
+///
+/// A cue can wait partway for GO, as an anagram cue's working can. While it
+/// has GO points left, the next of them stands by ahead of the next cue, and
+/// GO carries the live cue on to it. → skips past it to the next cue; ← from
+/// there comes back to it.
 public struct Playhead: Equatable, Sendable {
     /// The cue on stage. Nil until the first GO.
     public private(set) var live: UUID?
@@ -17,6 +22,16 @@ public struct Playhead: Equatable, Sendable {
     /// The override the operator toggles when something has gone wrong. It
     /// stays on across cues until toggled back.
     public var blackout = false
+
+    /// How many GO points the live cue has, and how many GO has taken.
+    public private(set) var goPoints = 0
+    public private(set) var goPointsTaken = 0
+    /// Whether the live cue's next GO point stands by, rather than `standby`.
+    private var goPointStandsBy = false
+
+    /// The live cue's next GO point, counted from 0, when it is what stands
+    /// by: GO carries the live cue on to it rather than firing `standby`.
+    public var standingByGoPoint: Int? { goPointStandsBy ? goPointsTaken : nil }
 
     /// The longest number the keypad entry accepts.
     public static let entryLimit = 8
@@ -32,6 +47,9 @@ public struct Playhead: Equatable, Sendable {
             case run
             /// Straight to the finished state. Used to resume after a crash.
             case settled
+            /// On from where it waits partway, to its next GO point. Nothing
+            /// changes cue.
+            case carryOn
         }
 
         public let cue: UUID
@@ -46,6 +64,11 @@ public struct Playhead: Equatable, Sendable {
     /// progress is discarded. Nil at the end of the sheet.
     public mutating func go(in show: Show) -> Fire? {
         entry = ""
+        if goPointStandsBy, let live, show.index(of: live) != nil {
+            goPointsTaken += 1
+            goPointStandsBy = goPointsTaken < goPoints
+            return Fire(cue: live, presentation: .carryOn, automatic: false)
+        }
         guard let id = standby, show.index(of: id) != nil else { return nil }
         return fire(id, in: show, presentation: .run, automatic: false)
     }
@@ -66,9 +89,12 @@ public struct Playhead: Equatable, Sendable {
         return fire(show.cues[i + 1].id, in: show, presentation: .run, automatic: true)
     }
 
-    /// R: run the live cue again from the start. The standby cue is unchanged.
-    public func rerun() -> Fire? {
-        live.map { Fire(cue: $0, presentation: .run, automatic: false) }
+    /// R: run the live cue again from the start. The standby cue is
+    /// unchanged, but a cue with GO points has its first standing by again.
+    public mutating func rerun(in show: Show) -> Fire? {
+        guard let live else { return nil }
+        startGoPoints(of: live, in: show)
+        return Fire(cue: live, presentation: .run, automatic: false)
     }
 
     /// After a crash: put `id` up in its finished state and stand by the next.
@@ -80,8 +106,28 @@ public struct Playhead: Equatable, Sendable {
 
     private mutating func fire(_ id: UUID, in show: Show, presentation: Fire.Presentation, automatic: Bool) -> Fire {
         live = id
-        standby = show.index(of: id).flatMap { i in i + 1 < show.cues.count ? show.cues[i + 1].id : nil }
+        standby = cue(after: id, in: show)
+        // A cue put up finished has nowhere left to wait.
+        if presentation == .run { startGoPoints(of: id, in: show) } else { liveCueRedrawn() }
         return Fire(cue: id, presentation: presentation, automatic: automatic)
+    }
+
+    private mutating func startGoPoints(of id: UUID, in show: Show) {
+        goPoints = show[id]?.goPoints(defaults: show.settings).count ?? 0
+        goPointsTaken = 0
+        goPointStandsBy = goPoints > 0
+    }
+
+    /// The live cue was put up finished, as an edit in edit mode does, so it
+    /// waits for nothing more. R runs it again with its GO points.
+    public mutating func liveCueRedrawn() {
+        goPoints = 0
+        goPointsTaken = 0
+        goPointStandsBy = false
+    }
+
+    private func cue(after id: UUID, in show: Show) -> UUID? {
+        show.index(of: id).flatMap { i in i + 1 < show.cues.count ? show.cues[i + 1].id : nil }
     }
 
     // MARK: Standing by
@@ -89,6 +135,17 @@ public struct Playhead: Equatable, Sendable {
     /// → ↓ PageDown. From the last cue this reaches the end of the sheet.
     public mutating func standByNext(in show: Show) {
         entry = ""
+        // From the live cue's GO point to the cue after it, which is standing
+        // by behind it; from the live cue itself to its GO point.
+        if goPointStandsBy {
+            goPointStandsBy = false
+            return
+        }
+        if let live, standby == live, goPointsTaken < goPoints {
+            goPointStandsBy = true
+            standby = cue(after: live, in: show)
+            return
+        }
         guard let id = standby, let i = show.index(of: id) else { return }
         standby = i + 1 < show.cues.count ? show.cues[i + 1].id : nil
     }
@@ -96,6 +153,17 @@ public struct Playhead: Equatable, Sendable {
     /// ← ↑ PageUp. From the end of the sheet this reaches the last cue.
     public mutating func standByPrevious(in show: Show) {
         entry = ""
+        // From the live cue's GO point to the live cue itself, to fire it
+        // again; from the cue after it back to its GO point.
+        if goPointStandsBy {
+            goPointStandsBy = false
+            standby = live
+            return
+        }
+        if let live, goPointsTaken < goPoints, standby == cue(after: live, in: show) {
+            goPointStandsBy = true
+            return
+        }
         guard let id = standby, let i = show.index(of: id) else {
             standby = show.cues.last?.id
             return
@@ -107,6 +175,7 @@ public struct Playhead: Equatable, Sendable {
     public mutating func standBy(_ id: UUID) {
         entry = ""
         standby = id
+        goPointStandsBy = false
     }
 
     /// The Go-to field, which also reaches numbers with letters in them.
@@ -148,7 +217,7 @@ public struct Playhead: Equatable, Sendable {
         entry = ""
         guard !typed.isEmpty else { return .empty }
         guard let i = show.index(ofNumber: typed) else { return .noSuchCue(typed) }
-        standby = show.cues[i].id
+        standBy(show.cues[i].id)
         return .stoodBy(show.cues[i].id)
     }
 
@@ -174,7 +243,10 @@ public struct Playhead: Equatable, Sendable {
     /// by whichever cue now occupies its place. If the live cue was deleted,
     /// nothing is live; the stage takes it off.
     public mutating func reconcile(from old: Show, to new: Show) {
-        if let id = live, new.index(of: id) == nil { live = nil }
+        if let id = live, new.index(of: id) == nil {
+            live = nil
+            liveCueRedrawn()
+        }
         guard let id = standby, new.index(of: id) == nil else { return }
         guard let oldIndex = old.index(of: id) else {
             standby = new.cues.first?.id

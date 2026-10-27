@@ -55,6 +55,20 @@ public protocol ReportsProblems: AnyObject {
     var onProblem: ((String) -> Void)? { get set }
 }
 
+/// A renderer whose cue can stop partway and wait for GO, as an anagram cue's
+/// working can. The playhead counts the GOs; the renderer keeps the time.
+@MainActor
+public protocol WaitsForGO: AnyObject {
+    /// Done everything it can by frame `f`, with more to come on GO. The
+    /// clock can rest meanwhile.
+    func isWaiting(at f: Int) -> Bool
+    /// GO on frame `f`: the next part goes then, or as soon as the part
+    /// before it has finished.
+    func carryOn(at f: Int)
+    /// Lets every part go, as when the cue is put up finished.
+    func carryOnToEnd()
+}
+
 /// How ready a cue that may fire next is.
 public enum ArmState: Equatable, Sendable {
     /// Still loading.

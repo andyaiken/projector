@@ -64,23 +64,40 @@ public struct CueSheet: Equatable, Sendable {
                 number: cue.number,
                 type: cue.kind.heading,
                 auto: i > 0 && show.cues[i - 1].continueMode.continues,
-                content: Self.content(of: cue),
+                content: Self.content(of: cue, defaults: show.settings),
                 cuePoint: layout == .dsm ? cue.line.trimmingCharacters(in: .whitespacesAndNewlines) : "",
                 settings: layout == .operatorSettings ? Self.settings(of: cue, defaults: show.settings) : []
             )
         }
     }
 
-    private static func content(of cue: Cue) -> [String] {
+    private static func content(of cue: Cue, defaults: ShowSettings) -> [String] {
         let lines: [String]
         switch cue.content {
         case .title(let c): lines = [c.text, c.sub]
-        case .anagram(let c): lines = [c.text, c.answer.isEmpty ? "" : "\u{2192} " + c.answer]
+        case .anagram(let c): lines = anagramLines(c, advance: defaults.resolved(c.overrides).advance)
         case .image(let c): lines = [c.text]
         case .video(let c): lines = [c.text, c.sub]
         case .blank(let c): lines = [c.text, c.colour.hex.uppercased()]
         }
         return lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    /// Each anagram's phrase, its working after an ellipsis, and its answer
+    /// after an arrow. Where the cue waits for GO partway, the line GO brings
+    /// on starts GO, so the DSM can see every GO the cue takes. One the cue
+    /// doesn't solve is the one line it shows, saying so.
+    static func anagramLines(_ c: AnagramContent, advance: AnagramAdvance) -> [String] {
+        c.anagrams.flatMap { a -> [String] in
+            if a.isSolvedAlready { return [a.steps[0] + " (solved)"] }
+            if a.ignored { return [(a.steps.first ?? "") + " (ignored)"] }
+            let goes = a.steps.count > 1 && advance != .byItself
+            let phrase = (goes && advance == .eachAnagram ? "GO " : "") + a.text
+            let working = a.working.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                .map { (goes && advance == .eachStep ? "GO " : "") + "\u{2026} " + $0 }
+            let answer = a.answer.isEmpty ? "" : (goes && advance == .eachStep ? "GO " : "") + "\u{2192} " + a.answer
+            return [phrase] + working + [answer]
+        }
     }
 
     private static func settings(of cue: Cue, defaults: ShowSettings) -> [Setting] {
@@ -93,6 +110,9 @@ public struct CueSheet: Equatable, Sendable {
                 // A hold also in seconds, as the panels show it.
                 let t = cue.timing(defaults: defaults)
                 if key == .hold, let length = SettingKey.holdLength(holdTicks: t.holdTicks, clockMs: t.clockMs) {
+                    reading += " \u{00B7} " + length
+                }
+                if key == .pause, case .number(let ticks) = value, let length = SettingKey.holdLength(holdTicks: ticks, clockMs: t.clockMs) {
                     reading += " \u{00B7} " + length
                 }
                 return Setting(name: key.label, value: reading, overridden: overridden)

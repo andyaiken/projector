@@ -158,7 +158,7 @@ public final class ShowController {
     }
 
     public func rerun() {
-        guard let fire = playhead.rerun() else {
+        guard let fire = playhead.rerun(in: show) else {
             say("Nothing is on stage yet.")
             return
         }
@@ -169,6 +169,29 @@ public final class ShowController {
         playhead.blackout.toggle()
         runner.blackout = playhead.blackout
         say(playhead.blackout ? "Blacked out. Press B to bring the picture back." : nil)
+    }
+
+    /// The live cue's next GO point, when that is what stands by: GO carries
+    /// the live cue on to it.
+    public struct StandingByGoPoint: Equatable, Sendable {
+        public var cue: Cue
+        public var point: GoPoint
+        /// Counted from 1, as the standby panel reads it.
+        public var number: Int
+        public var count: Int
+    }
+
+    public var standingByGoPoint: StandingByGoPoint? {
+        guard let index = playhead.standingByGoPoint, let id = playhead.live, let cue = show[id] else { return nil }
+        let points = cue.goPoints(defaults: show.settings)
+        guard points.indices.contains(index) else { return nil }
+        return StandingByGoPoint(cue: cue, point: points[index], number: index + 1, count: points.count)
+    }
+
+    /// The cue GO acts on: the live cue when its GO point stands by,
+    /// otherwise the standby cue. The editor and Cue Settings show this one.
+    public var standingByCue: Cue? {
+        standingByGoPoint?.cue ?? playhead.standby.flatMap { show[$0] }
     }
 
     /// What the standby panel says about a video cue standing by: armed and
@@ -306,6 +329,8 @@ public final class ShowController {
         unchanged?.transition = cue.transition
         guard cue.kind != .video, cue != unchanged || defaultsChanged else { return }
         runner.redraw(cue, defaults: show.settings, at: now())
+        // Finished, it waits for no more GOs.
+        playhead.liveCueRedrawn()
         needsTicks(true)
     }
 
@@ -389,6 +414,15 @@ public final class ShowController {
 
     private func perform(_ fire: Playhead.Fire) {
         guard let cue = show[fire.cue] else { return }
+        if fire.presentation == .carryOn {
+            // The same cue, on from where it waits: no transition, no new
+            // timed continue, and nothing new for the crash record.
+            message = nil
+            runner.carryOn(at: now())
+            needsTicks(true)
+            changed()
+            return
+        }
         onFire?(cue)
         // Cleared first, so a problem the renderer reports while loading stays.
         message = nil
@@ -402,7 +436,7 @@ public final class ShowController {
             } else {
                 continueAt = nil
             }
-        case .settled:
+        case .settled, .carryOn:
             // Back up after a crash: there, at once, and not counted as
             // settling, so nothing continues from it until GO.
             continueAt = nil

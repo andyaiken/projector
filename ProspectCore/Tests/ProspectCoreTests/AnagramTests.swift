@@ -139,7 +139,7 @@ struct AnagramTests {
 
     @Test("An anagram overrides the timing, and runs on its own clock")
     func settings() {
-        #expect(SettingKey.allCases.filter { $0.applies(to: .anagram) } == [.clock, .wave, .hold, .font, .transition, .fade])
+        #expect(SettingKey.allCases.filter { $0.applies(to: .anagram) } == [.clock, .wave, .hold, .advance, .pause, .font, .transition, .fade])
         var cue = Cue(content: .anagram(AnagramContent(text: "A", answer: "A")))
         SettingKey.hold.setOverride(.number(10), in: &cue)
         #expect(cue.timing(defaults: ShowSettings()) == CueTiming(clockMs: 44, holdTicks: 10, isInstant: false))
@@ -149,12 +149,11 @@ struct AnagramTests {
     func issues() {
         let off = Cue(number: "1", content: .anagram(AnagramContent(text: "Listen", answer: "Silent!")))
         let wrong = Cue(number: "2", content: .anagram(AnagramContent(text: "Rose", answer: "Ores line")))
-        let half = Cue(number: "3", content: .anagram(AnagramContent(text: "Rose", answer: " ")))
-        let show = Show(title: "T", cues: [off, wrong, half])
+        let alone = Cue(number: "3", content: .anagram(AnagramContent(text: "Rose", answer: " ")))
+        let show = Show(title: "T", cues: [off, wrong, alone])
         #expect(show.issues == [
-            .anagramLettersDiffer(cue: wrong.id, extra: "", missing: "EILN"),
-            .anagramWithoutPhrase(cue: half.id),
-        ], "punctuation may differ freely")
+            .anagramLettersDiffer(cue: wrong.id, anagram: 0, extra: "", missing: "EILN"),
+        ], "punctuation may differ freely, and one line alone is solved already")
         #expect(show.message(for: show.issues[0]) ==
             "Cue 2 isn\u{2019}t an exact anagram: only the answer has E I L N. Those letters fade instead of moving.")
     }
@@ -167,7 +166,8 @@ struct AnagramTests {
         #expect(dsm.rows[0].type == "Anagram")
         #expect(dsm.rows[0].content == ["SO DARK THE CON OF MAN", "\u{2192} MADONNA OF THE ROCKS"])
         let settings = CueSheet(show: show, title: "T", layout: .operatorSettings).rows[0].settings
-        #expect(settings.map(\.name) == ["Clock", "Wave", "Hold", "Font", "Transition", "Fade"])
-        #expect(settings[3].value == "SF Mono", "the stage's own type, by name")
+        #expect(settings.map(\.name) == ["Clock", "Wave", "Hold", "Advance", "Pause", "Font", "Transition", "Fade"])
+        #expect(settings[3].value == "by itself" && settings[4].value == "44 \u{00B7} 1.9 s", "a pause in seconds, as a hold")
+        #expect(settings[5].value == "SF Mono", "the stage's own type, by name")
     }
 }

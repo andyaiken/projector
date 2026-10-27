@@ -328,8 +328,9 @@ final class StandbyPanel: PanelView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// For a video cue standing by: whether it is armed, said plainly.
-    func update(standby: Cue?, live: Cue?, entry: String, arm armState: ArmState?) {
+    /// For a video cue standing by: whether it is armed, said plainly. While
+    /// the live cue waits partway, its GO point stands by in the cue's place.
+    func update(standby: Cue?, live: Cue?, goPoint: ShowController.StandingByGoPoint?, entry: String, arm armState: ArmState?) {
         switch armState {
         case .armed:
             arm.stringValue = "Video armed"
@@ -347,13 +348,23 @@ final class StandbyPanel: PanelView {
             standingBy.stringValue = "Go to \u{2014} Return stands it by, Escape clears"
             number.stringValue = entry + "\u{2581}"
             name.stringValue = ""
+        } else if let goPoint {
+            standingBy.stringValue = "Standing by \u{2014} \(goPoint.point.unit.rawValue) \(goPoint.number) of \(goPoint.count)"
+            number.stringValue = goPoint.cue.number
+            name.stringValue = goPoint.point.text
         } else {
             standingBy.stringValue = "Standing by"
             number.stringValue = standby?.number ?? "\u{2014}"
             name.stringValue = standby.map { $0.text.isEmpty ? "\u{2014}" : $0.text } ?? "end of sheet"
         }
-        let line = standby?.line.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        cuePoint.stringValue = !line.isEmpty ? line : (standby == nil ? "Nothing to stand by for" : "No cue point set")
+        let line = goPoint == nil ? standby?.line.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" : ""
+        if let goPoint {
+            // No cue point of its own: what GO does here, and how to skip it.
+            let after = standby.map { "cue \($0.number)" } ?? "the end of the sheet"
+            cuePoint.stringValue = "GO carries cue \(goPoint.cue.number) on. \u{2192} skips to \(after)."
+        } else {
+            cuePoint.stringValue = !line.isEmpty ? line : (standby == nil ? "Nothing to stand by for" : "No cue point set")
+        }
         cuePoint.textColor = line.isEmpty ? Desk.dim : Desk.text
         cuePoint.font = line.isEmpty ? NSFontManager.shared.convert(Desk.sans(13), toHaveTrait: .italicFontMask) : Desk.sans(13)
         cuePointBar.layer?.backgroundColor = (line.isEmpty ? Desk.line : Desk.brass).cgColor
@@ -464,7 +475,9 @@ final class CueRowView: NSView {
     var subtitle: String {
         switch cue.content {
         case .title(let c): c.sub
-        case .anagram(let c): c.answer.isEmpty ? "" : "\u{2192} " + c.answer
+        case .anagram(let c):
+            [c.anagrams.first.map { $0.answer.isEmpty ? "" : "\u{2192} " + $0.answer } ?? "",
+             c.anagrams.count > 1 ? "and \(c.anagrams.count - 1) more" : ""].filter { !$0.isEmpty }.joined(separator: "   ")
         case .image(let c): c.src.isEmpty ? "no picture" : ""
         case .video(let c): [c.sub, c.atEnd == .hold ? "" : c.atEnd.rawValue].filter { !$0.isEmpty }.joined(separator: "   ")
         case .blank(let c): c.colour.hex

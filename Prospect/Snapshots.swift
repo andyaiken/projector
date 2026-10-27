@@ -99,15 +99,30 @@ enum Snapshots {
 
         // An anagram cue in the editor.
         if let anagram = controller.addCue(.anagram) {
-            controller.updateCue(anagram, "Change Phrase") { cue in
-                cue.text = "O, Draconian devil! Oh, lame saint!"
-                cue.sub = "Leonardo da Vinci! The Mona Lisa!"
+            controller.updateCue(anagram, "Change Anagrams") { cue in
+                cue.content = .anagram(AnagramContent(anagrams: [
+                    Anagram(text: "O, Draconian devil!", working: ["Dracula? No.", "LEONARDO"], answer: "Leonardo da Vinci!"),
+                    Anagram(text: "Oh, lame saint!", answer: "The Mona Lisa!"),
+                ]))
             }
             save(console, "console-edit-anagram", to: directory)
             // Its settings, set in a hand.
             controller.setOverride(.font, to: .font("Noteworthy"), for: anagram)
             console.showEditTab(1)
             save(console, "console-cue-settings-anagram", to: directory)
+
+            // In show mode, each anagram on GO: the first solved, through
+            // its working, and the second standing by in the cue's place.
+            controller.setOverride(.advance, to: .advance(.eachAnagram), for: anagram)
+            controller.setOverride(.font, to: nil, for: anagram)
+            controller.enterShowMode()
+            controller.standBy(anagram)
+            let fired = CACurrentMediaTime()
+            controller.go()
+            controller.tick(at: fired + 1)
+            controller.go()
+            for i in 1...1200 { controller.tick(at: fired + 1 + Double(i) / 60) }
+            save(console, "console-show-anagram-waiting", to: directory)
         }
 
         // Prospect › Settings.
@@ -274,6 +289,11 @@ enum DocumentCheck {
                 return console.editor.tabStops
             }
             let decryption = stops(for: titleID), image = stops(for: imageID)
+            if let anagramID = controller.addCue(.anagram) {
+                let anagram = stops(for: anagramID)
+                check(anagram == ["anagrams", "number", "line"], "Tab through an anagram cue: \(anagram.joined(separator: ", "))")
+                controller.deleteCue(anagramID)
+            }
             check(decryption == ["text", "sub", "key", "number", "line"], "Tab through a decryption cue: \(decryption.joined(separator: ", "))")
             check(image == ["text", "number", "line"], "Tab through an image cue, which has no caption: \(image.joined(separator: ", "))")
         }

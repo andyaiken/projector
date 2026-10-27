@@ -173,15 +173,26 @@ public final class StageRunner {
 
         switch presentation {
         case .settled:
+            (renderer as? WaitsForGO)?.carryOnToEnd()
             _ = renderer.frame(Self.settledFrame)
             lastFrame = Self.settledFrame
             isRunning = false
             settlePending = true
-        case .run:
+        case .run, .carryOn:
             isRunning = true
             settlePending = false
             paint(at: time)
         }
+    }
+
+    /// GO while the cue on stage waits partway: it carries on from now, or
+    /// once whatever it is still doing has finished.
+    public func carryOn(at time: Double) {
+        guard let cue, let clock, let renderer = renderers[cue.kind] as? WaitsForGO else { return }
+        renderer.carryOn(at: clock.frame(at: time))
+        isRunning = true
+        lastFrame = nil
+        paint(at: time)
     }
 
     /// The show's defaults changed. Most take effect when a cue next runs;
@@ -272,6 +283,10 @@ public final class StageRunner {
         if TickClock.hasSettled(rendererDone: done, frame: f) {
             isRunning = false
             settlePending = true
+        } else if f >= 0, (renderer as? WaitsForGO)?.isWaiting(at: f) == true {
+            // Nothing more until GO, so the clock can rest. The cue hasn't
+            // finished, so nothing continues from it.
+            isRunning = false
         }
     }
 }

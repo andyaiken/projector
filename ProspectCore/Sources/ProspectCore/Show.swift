@@ -5,8 +5,10 @@ import Foundation
 /// show.json inside the `.prospect` package.
 public struct Show: Equatable, Sendable {
     /// Bumped when show.json changes shape, so an old file can be migrated
-    /// rather than misread.
-    public static let formatVersion = 1
+    /// rather than misread. 2 lists an anagram cue's anagrams and working,
+    /// which a version 1 reader would take for an empty cue; version 1 files
+    /// read as they are.
+    public static let formatVersion = 2
 
     /// For the window and the printed cue sheet header.
     public var title: String
@@ -100,6 +102,10 @@ public struct ShowSettings: Equatable, Sendable {
     public var flipMs = 420
     public var order = TileOrder.diagonal
     public var reveal = TileReveal.flip
+    /// How an anagram cue moves on from each step: by itself, or on GO.
+    public var advance = AnagramAdvance.byItself
+    /// Frames an anagram rests on each step before the next moves.
+    public var pauseTicks = 44
     /// The font family anagram letters are set in. Empty is the stage's own
     /// type, SF Mono.
     public var anagramFont = ""
@@ -130,7 +136,7 @@ public struct ShowSettings: Equatable, Sendable {
 
     public func resolved(_ o: AnagramOverrides) -> AnagramSettings {
         AnagramSettings(clockMs: o.clockMs ?? clockMs, waveTicks: o.waveTicks ?? waveTicks, holdTicks: o.holdTicks ?? holdTicks,
-                        font: o.font ?? anagramFont)
+                        advance: o.advance ?? advance, pauseTicks: o.pauseTicks ?? pauseTicks, font: o.font ?? anagramFont)
     }
 
     public func resolved(_ o: ImageOverrides) -> ImageSettings {
@@ -173,13 +179,17 @@ public struct AnagramSettings: Equatable, Sendable {
     public var clockMs: Int
     public var waveTicks: Int
     public var holdTicks: Int
+    public var advance: AnagramAdvance
+    public var pauseTicks: Int
     /// A font family's name. Empty is the stage's own type.
     public var font: String
 
-    public init(clockMs: Int, waveTicks: Int, holdTicks: Int, font: String = "") {
+    public init(clockMs: Int, waveTicks: Int, holdTicks: Int, advance: AnagramAdvance = .byItself, pauseTicks: Int = 44, font: String = "") {
         self.clockMs = clockMs
         self.waveTicks = waveTicks
         self.holdTicks = holdTicks
+        self.advance = advance
+        self.pauseTicks = pauseTicks
         self.font = font
     }
 }
@@ -238,6 +248,8 @@ public enum SettingRange {
     public static let clockMs = 18...110
     public static let waveTicks = 0...10
     public static let holdTicks = 0...80
+    /// Longer than a hold: working is read, not glanced at.
+    public static let pauseTicks = 0...160
     public static let textScale = 40...130
     public static let gridColumns = 4...28
     public static let flipMs = 150...1200
@@ -253,7 +265,7 @@ extension ClosedRange where Bound == Int {
 extension ShowSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case clockMs, waveTicks, holdTicks, histogram, sceneLine, letters, bars, gridColumns, flipMs, order
-        case reveal, anagramFont, transition, fadeMs, textScale, geometry, projector
+        case reveal, advance, pauseTicks, anagramFont, transition, fadeMs, textScale, geometry, projector
     }
 
     public init(from decoder: Decoder) throws {
@@ -273,6 +285,8 @@ extension ShowSettings: Codable {
         flipMs = try int(.flipMs, d.flipMs, SettingRange.flipMs)
         order = try c.decodeIfPresent(TileOrder.self, forKey: .order) ?? d.order
         reveal = try c.decodeIfPresent(TileReveal.self, forKey: .reveal) ?? d.reveal
+        advance = try c.decodeIfPresent(AnagramAdvance.self, forKey: .advance) ?? d.advance
+        pauseTicks = try int(.pauseTicks, d.pauseTicks, SettingRange.pauseTicks)
         anagramFont = try c.decodeIfPresent(String.self, forKey: .anagramFont) ?? d.anagramFont
         transition = try c.decodeIfPresent(TransitionStyle.self, forKey: .transition) ?? d.transition
         fadeMs = try int(.fadeMs, d.fadeMs, SettingRange.fadeMs)
@@ -294,6 +308,8 @@ extension ShowSettings: Codable {
         try c.encode(flipMs, forKey: .flipMs)
         try c.encode(order, forKey: .order)
         try c.encode(reveal, forKey: .reveal)
+        try c.encode(advance, forKey: .advance)
+        try c.encode(pauseTicks, forKey: .pauseTicks)
         try c.encode(anagramFont, forKey: .anagramFont)
         try c.encode(transition, forKey: .transition)
         try c.encode(fadeMs, forKey: .fadeMs)

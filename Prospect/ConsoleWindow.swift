@@ -94,7 +94,13 @@ final class ConsoleWindowController: NSWindowController, NSWindowDelegate, NSTex
         header.mode.action = #selector(modeChosen)
         header.addCue.target = self
         header.addCue.action = #selector(addCueChosen)
-        cueList.onClick = { [weak controller] id in controller?.standBy(id) }
+        // An edit still open is finished first, so it lands on the cue it was
+        // made for rather than the one the click stands by.
+        cueList.onClick = { [weak self] id in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self.root)
+            self.controller.standBy(id)
+        }
         cueList.onDrop = { [weak self] url, id in self?.importMedia(url, id) }
         cueList.onDelete = { [weak controller] id in controller?.deleteCue(id) }
         cueList.onMove = { [weak controller] id, offset in controller?.moveCue(id, by: offset) }
@@ -116,7 +122,7 @@ final class ConsoleWindowController: NSWindowController, NSWindowDelegate, NSTex
             self.window?.makeFirstResponder(self.root)
         }
         cueSettings.onChange = { [weak controller] key, value, continuous in
-            guard let controller, let id = controller.playhead.standby else { return }
+            guard let controller, let id = controller.standingByCue?.id else { return }
             controller.setOverride(key, to: value, for: id, coalescing: continuous)
         }
         tabs.selectedSegment = 0
@@ -178,6 +184,9 @@ final class ConsoleWindowController: NSWindowController, NSWindowDelegate, NSTex
         let show = controller.show, playhead = controller.playhead, projector = controller.projector
         let live = playhead.live.flatMap { show[$0] }
         let next = playhead.standby.flatMap { show[$0] }
+        // While the live cue waits partway, its next GO point stands by ahead
+        // of the next cue, and GO carries it on.
+        let goPoint = controller.standingByGoPoint
         synchronizeWindowTitleWithDocumentName()
 
         let isLive = projector.display != nil
@@ -187,14 +196,15 @@ final class ConsoleWindowController: NSWindowController, NSWindowDelegate, NSTex
             live: isLive && !playhead.blackout,
             warn: playhead.blackout || projector.warning != nil,
             projectorOpen: projector.isOpen,
-            goEnabled: next != nil,
-            goTip: next.map { "Fire cue \($0.number)" } ?? "End of the cue sheet"
+            goEnabled: next != nil || goPoint != nil,
+            goTip: goPoint.map { "Carry cue \($0.cue.number) on" } ?? next.map { "Fire cue \($0.number)" } ?? "End of the cue sheet"
         )
-        standby.update(standby: next, live: live, entry: playhead.entry, arm: controller.standbyArmState)
-        cueList.update(cues: show.cues, defaults: show.settings, standby: playhead.standby, live: playhead.live,
+        standby.update(standby: next, live: live, goPoint: goPoint, entry: playhead.entry, arm: controller.standbyArmState)
+        cueList.update(cues: show.cues, defaults: show.settings, standby: goPoint?.cue.id ?? playhead.standby, live: playhead.live,
                        issues: Set(show.issues.flatMap(\.cues)), editing: controller.mode == .edit)
-        editor.update(cue: controller.mode == .edit ? next : nil)
-        cueSettings.update(cue: controller.mode == .edit ? next : nil, defaults: show.settings)
+        let editing = controller.mode == .edit ? controller.standingByCue : nil
+        editor.update(cue: editing)
+        cueSettings.update(cue: editing, defaults: show.settings)
         showDefaults.update(title: show.title, fallback: document?.displayName ?? "Untitled", settings: show.settings)
         status.stringValue = controller.message ?? ""
         warning.text.stringValue = projector.warning ?? ""

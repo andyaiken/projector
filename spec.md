@@ -48,6 +48,22 @@ A review of this document on Oct 15 found places where it contradicted itself or
 | Minimum macOS | 26. The booth Mac runs 27 |
 | Bundle identifier | `com.andyaiken.prospect`, matching the developer's other apps; the document type is `com.andyaiken.prospect.show` |
 
+### Settled Oct 27, for anagram cues
+
+Anagram cues were extended to hold several anagrams and the working on the way to each. These were settled then, and the sections below are written to match.
+
+| Question | Answer |
+| --- | --- |
+| How many anagrams a cue holds | Any number, on stage together, stacked, solved one after another |
+| Working | Any number of steps between each phrase and its answer, which may be partial or wrong |
+| Letters a step of working doesn't use | They dim, and gather on a line beneath it until a later step takes them up |
+| Colour through the working | Slate. Letters warm to bone only as they land in the answer, so a wrong guess never looks solved |
+| Pacing | A Pause setting, and an Advance setting: by itself, each anagram on GO, or each step on GO |
+| A GO partway through a cue | Space carries the live cue on. The cue keeps one number, and the printed sheet marks each GO under it |
+| Editing them | One text box: a paragraph an anagram, the phrase first, the answer last, working between |
+| Anagrams the cue doesn't solve | `~` before a phrase ignores its anagram: it stands jumbled, in slate. A paragraph of one line is solved already: it stands solved, in bone. The cue skips both, and neither takes a GO or is flagged |
+| show.json | Format version 2, which lists a cue's anagrams. A version 1 show opens as it was |
+
 ### Constraints
 
 These were established by running the show, and hold without change. Breaking any of them breaks the show.
@@ -81,7 +97,9 @@ protocol CueRenderer: AnyObject {
 }
 ```
 
-Four conformers: `TitleRenderer`, `ImageRenderer`, `VideoRenderer` and `BlankRenderer`. Adding a fifth means writing one class and adding one case. Nothing generic is touched.
+Five conformers: `TitleRenderer`, `AnagramRenderer`, `ImageRenderer`, `VideoRenderer` and `BlankRenderer`. Adding a sixth means writing one class and adding one case. Nothing generic is touched.
+
+A renderer whose cue can stop partway and wait for GO also conforms to `WaitsForGO`: it says when it is waiting, so the clock can rest, and carries on when told. Only `AnagramRenderer` does. The playhead counts the GOs; the renderer keeps the time.
 
 `VideoRenderer` is the one that strains the contract. It does not resolve over a frame count, it plays; it satisfies `frame(f)` by reporting whether its player has reached the end, and it is the only renderer that does not paint every surface identically. See Video cues.
 
@@ -168,6 +186,24 @@ A phrase whose letters lift out of line and travel to spell another, as the book
 - They set off in reading order, a wave apart, but the departures close up to fit within one journey, so every letter has left before the first lands and nothing lands on a letter still waiting to go. A journey is 24 steps of the clock, eased in and out; like a tile's flip, it is an animation with its own duration that the clock only triggers.
 - A character only one phrase has, such as a comma, fades: out of the phrase as its turn comes, or into the answer as the last letters land. Punctuation and spaces may differ freely, but a letter or digit only one phrase has is flagged in the console, since an inexact anagram is usually a typing slip.
 - Hold, clock and wave are set as for the other cues, and text size is shared with decryption cues.
+
+**Several anagrams to a cue.** A cue can hold any number of anagrams. They are on stage together from the start, stacked down the stage in one size of type, each in a block with room for its longest step, and they are solved one after another, the first after the hold.
+
+**Working.** Between each phrase and its answer can come steps of working, as someone solving it might try them: "Dracula? No.", or "LEONARDO" with the rest still to place. Each step is a move like any other, letters travelling and leftover punctuation fading. Working may be partial or wrong, so only the phrase and its answer are checked against each other; a step may bring in letters the phrase doesn't have, which fade in.
+
+- A letter a step of working doesn't use isn't lost: it dims, and gathers on a line beneath the step, in the order the letters stood, until a later step takes it up, rising and brightening as it goes. "O, Draconian devil!" worked to LEONARDO leaves c i a n d v i dimmed beneath. The answer takes what it needs, and anything left fades, as it always has.
+- Working stays slate. Letters warm to bone only as they land in the answer, so a wrong guess never looks solved.
+- A cue's anagrams and working are written in one text box in the Cue tab: a paragraph an anagram, the phrase on its first line, the answer on its last, any working between, and a blank line before the next.
+- **Skipping one.** `~` before a phrase ignores its anagram: it stands jumbled, as its phrase, in slate, and is never solved. A paragraph of one line is an anagram solved already: it stands solved, in bone, so a later cue can show the board with earlier answers in place. One line wins: an ignored anagram of one line stands solved. The cue skips both as it solves the rest, neither takes a GO, and neither is checked or flagged.
+
+**Pacing: Pause and Advance**, both show defaults any anagram cue can override.
+
+- **Pause** is how many steps of the clock an anagram rests on each step of its working, and once solved, before the next moves. It reads in steps and seconds, as a hold does.
+- **Advance** is by itself, each anagram on GO, or each step on GO. By itself, everything follows a pause after what came before. Each anagram on GO waits for GO before every anagram, the first included, and runs its working by itself. Each step on GO waits before every step.
+- While the live cue waits, its next GO point stands by ahead of the next cue: the standby panel shows the cue's number with "anagram 2 of 3" or "step 2 of 4" and what GO brings on, and Space carries the cue on. → skips past it to stand by the next cue, abandoning the rest; ← comes back to it. Clicking a cue, or going to one by number, stands that cue by instead.
+- A GO before the cue can move, during the hold or while its last part is still moving, carries it on as soon as it can, so nothing jumps.
+- The cue keeps one number: a GO partway is a GO for that cue. The printed sheet marks every line a GO brings on, so the DSM can see each one.
+- A cue that waits hasn't finished, so a continue when finished comes only after the last GO has run. R runs the cue again from the start, its first GO point standing by again; an edit to the cue on stage shows it finished, waiting for nothing; resuming after a crash shows it finished.
 
 ### Image cues
 
@@ -310,7 +346,7 @@ A package rather than a single file because media must travel with the show. A s
 
 A `Codable` encoding of the model. JSON rather than a binary format so it can be diffed in a repository and repaired by hand if it ever has to be.
 
-- `version` so a future format change can migrate rather than fail
+- `version` so a future format change can migrate rather than fail. Version 2 lists an anagram cue's anagrams and working; a version 1 reader would take such a cue for an empty one, so it refuses the file instead
 - `cues` every field in the cue model, including the video end behaviour, Continue and per-cue overrides
 - `settings` the show's default for every per-cue setting, the text size, the projection geometry and the projector display identity
 - `title` for the window and the printed cue sheet header
@@ -342,7 +378,7 @@ New shows start in edit mode: they are being written, not run. A show opened fro
 Edit mode adds a cue editor beside the projection area. It edits the cue standing by, so clicking a cue in the list opens it.
 
 - **Add Cue**, a pull-down in the console's header in edit mode, adds a Decryption, Anagram, Image, Video or Blank cue, as the Edit menu's Add items do. The new cue goes in after the standby cue, numbered by the rules below, stands by, and opens in the Cue tab. Its fields start empty. Keeping Add in the header leaves the Cue tab to the cue's own details.
-- Two columns. On the left, what the cue shows: text, subtext and key for a decryption cue; the phrase and its answer for an anagram; a label and a picture for an image cue; a label, caption, clip and end behaviour for a video cue; a label and colour for a blank. On the right, where it comes in the book: number, cue point and Continue, a menu of When cued, After and When finished, after, each but the first with a seconds field, and When finished disabled for a cue that doesn't take time. Tab moves down the left column, then the right, and round again.
+- Two columns. On the left, what the cue shows: text, subtext and key for a decryption cue; the text box of anagrams and their working for an anagram cue; a label and a picture for an image cue; a label, caption, clip and end behaviour for a video cue; a label and colour for a blank. On the right, where it comes in the book: number, cue point and Continue, a menu of When cued, After and When finished, after, each but the first with a seconds field, and When finished disabled for a cue that doesn't take time. Tab moves down the left column, then the right, and round again.
 - A picture or clip is dropped on the editor or on the cue's row in the list, or chosen with Choose…. Remove takes it off the cue and leaves the file in the package.
 - In edit mode each row in the cue list has a delete button and a grip at its right. Dragging a row by its grip moves the cue, its number with it, with a brass line showing where it will land; the list scrolls if the pointer reaches its edge. Delete removes the cue at once, without asking: both are one step of undo, and the Cue tab keeps to the cue's own details.
 - Edit › Renumber All Cues… asks first, with Cancel as the default. It is a menu item rather than a button in the editor, so it is never one stray click away.
@@ -382,7 +418,7 @@ One row per cue, in running order:
 | --- | --- |
 | Cue | The cue number, as set. Right-aligned, tabular figures |
 | Type | Decryption, Image, Video or Blank. A cue the one before it continues into is marked AUTO here |
-| Content | A decryption cue's text and subtext, an image cue's label, a video cue's label and caption, or a blank's colour |
+| Content | A decryption cue's text and subtext, an anagram cue's phrases with their working and answers, an image cue's label, a video cue's label and caption, or a blank's colour. Each line an anagram cue's GO brings on starts GO; an anagram solved already ends "(solved)", and one ignored "(ignored)" |
 | Cue point | The line or action the operator is waiting for |
 
 ### Layout rules
@@ -401,7 +437,7 @@ These are not cosmetic. A cue sheet is read on a music stand under a single lamp
 
 **Decided: build both.** A second layout, chosen in the print panel, for the projection operator rather than the DSM.
 
-Same one row per cue in running order, different columns: cue number, type, content, and the settings that cue runs with once its overrides are applied to the show defaults. For a decryption cue that is the hold, clock and wave, whether the histogram and subtext are on, its letters and its bars. For an anagram it is the hold, clock, wave and font. For an image cue it is the hold, clock, wave, grid, flip duration, order and reveal. For a video cue it is the end behaviour, and for a blank cue its colour. Every cue also lists its transition in: the style, and the fade time when it fades; and a cue that continues says when. A value the cue overrides is marked, so a setting changed for one cue is not mistaken for the show default.
+Same one row per cue in running order, different columns: cue number, type, content, and the settings that cue runs with once its overrides are applied to the show defaults. For a decryption cue that is the hold, clock and wave, whether the histogram and subtext are on, its letters and its bars. For an anagram it is the hold, clock, wave, advance, pause and font. For an image cue it is the hold, clock, wave, grid, flip duration, order and reveal. For a video cue it is the end behaviour, and for a blank cue its colour. Every cue also lists its transition in: the style, and the fade time when it fades; and a cue that continues says when. A value the cue overrides is marked, so a setting changed for one cue is not mistaken for the show default.
 
 It is a tech-week document. It exists so settings dialled in on the rig can be written down, checked against, and restored if a document is ever lost or rebuilt. It carries no cue points, because an operator reading settings is not the operator waiting for a line.
 
@@ -419,6 +455,7 @@ A `Cue` is a struct with an enum payload per kind, so an invalid combination can
 | `line` | all | The cue point: the spoken line or action to wait for |
 | `text` | all | Text on a decryption cue, the phrase that appears on an anagram, label on an image or video cue |
 | `answer` | anagram | The phrase an anagram's letters rearrange into. A missing phrase, or letters only one of them has, is flagged in the console |
+| `anagrams` | anagram | In place of `text` and `answer`, when a cue has more than one anagram or any working: a list, each with its `text`, `working` (a list of steps), `answer` and, if it is ignored, `"ignored": true`. Each anagram the cue solves is checked on its own; working isn't |
 | `sub` | title, video | Subtext on a decryption cue, caption on a video cue. An image cue has none |
 | `key` | title | Vigenere key. Drives the ciphertext; never shown on stage or in the cue list. A decryption cue with no key, or no text, is flagged in the console |
 | `src` | image, video | Relative path inside the package. Empty on an image cue shows the cue's label on black; empty on a video cue is an error flagged in the console |
@@ -426,7 +463,7 @@ A `Cue` is a struct with an enum payload per kind, so an invalid combination can
 | `atEnd` | video | hold, black or loop. Default hold |
 | `continue` | all | What happens after this cue: absent for when cued; `{"after": 5}` for seconds after it fires; `{"finished": 2}` for seconds after it finishes. Flagged in the console on the last cue, or on a looping clip set to continue when finished |
 | `transition` | all | The cue's own transition in, overriding the show's: a style, `snap` or `fade`, a fade time in milliseconds, or both. Absent means the show's default |
-| `overrides` | title, anagram, image | This cue's values for settings the show holds defaults for. Absent means inherit. Decryption: clock, wave, hold, histogram, subtext, letters, bars. Anagram: clock, wave, hold, font. Image: clock, wave, hold, grid, flip, order, reveal by |
+| `overrides` | title, anagram, image | This cue's values for settings the show holds defaults for. Absent means inherit. Decryption: clock, wave, hold, histogram, subtext, letters, bars. Anagram: clock, wave, hold, advance, pause, font. Image: clock, wave, hold, grid, flip, order, reveal by |
 
 ### Show defaults and overrides
 
@@ -434,7 +471,7 @@ A `Cue` is a struct with an enum payload per kind, so an invalid combination can
 
 In edit mode the panels beneath the preview are tabs: Cue, Cue Settings, Show Defaults and Projection Area.
 
-- **Show Defaults** has three groups side by side: timing (clock, wave, hold), decryption cues (text size, histogram, subtext, letters, bars) and image cues (grid, flip, order, reveal by), with anagram cues (font) and transitions (style, fade time) beneath, and how timing works beside them, each setting with its own range and step. A change applies when a cue next runs, except text size, which refits a title on stage at once.
+- **Show Defaults** has three groups side by side: timing (clock, wave, hold), decryption cues (text size, histogram, subtext, letters, bars) and image cues (grid, flip, order, reveal by), with anagram cues (advance, pause, font) and transitions (style, fade time) beneath, and how timing works beside them, each setting with its own range and step. A change applies when a cue next runs, except text size, which refits a title on stage at once.
 - **Cue Settings** shows what the cue standing by runs with, in the same groups. Values the cue sets itself are in brass, each with a Reset that puts it back on the show's default. A video or blank cue has only its transition in here: a video plays on its own clock and a blank is instant.
 - A slider drag is one step of undo, however far it moves.
 - The console, the printed operator sheet and the panels word every setting the same way, from one definition of each. That definition also explains each setting, shown when the pointer rests on it, and the panels explain clock, wave and hold together: timing is counted in steps of the clock. A hold reads in steps and in seconds, as "44 · 1.9 s", on screen and on paper.
@@ -453,8 +490,8 @@ In edit mode the panels beneath the preview are tabs: Cue, Cue Settings, Show De
 
 | Key | Action |
 | --- | --- |
-| Space | Fire the standby cue |
-| → ↓ PageDown | Stand by the next cue. Nothing changes on stage |
+| Space | Fire the standby cue, or carry on a live anagram cue waiting for GO |
+| → ↓ PageDown | Stand by the next cue, skipping any GO the live cue still waits for. Nothing changes on stage |
 | ← ↑ PageUp | Stand by the previous cue |
 | 0–9 and `.` | Build a cue number in the standby panel, so `12` and `9.5` can be typed. Return stands that cue by, Escape clears the entry, and Backspace edits it. Space fires the standby cue already shown and discards the entry |
 | R | Run the live cue again, from its transition |
@@ -574,4 +611,4 @@ In seven phases, each leaving something demonstrable, with the risky work first 
 
 ## Projector time
 
-Book it early and more than once. The things that will need it are the glyph legibility from the back of the house, the tile grid density, whether the cold slate ciphertext survives the projector's contrast, the reveal timings, and whether the shielding-level projector window also covers notification banners. None of those can be judged on a desk.
+Book it early and more than once. The things that will need it are the glyph legibility from the back of the house, the tile grid density, whether the cold slate ciphertext survives the projector's contrast, whether an anagram's dimmed letters, slate at 40%, can still be read, the reveal timings, and whether the shielding-level projector window also covers notification banners. None of those can be judged on a desk.

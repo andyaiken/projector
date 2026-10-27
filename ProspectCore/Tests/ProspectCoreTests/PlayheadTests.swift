@@ -105,10 +105,10 @@ struct PlayheadTests {
 
     @Test func rerunReplaysTheLiveCue() {
         var playhead = Playhead(show: sheet)
-        #expect(playhead.rerun() == nil)
+        #expect(playhead.rerun(in: sheet) == nil)
         _ = playhead.go(in: sheet)
         let standby = playhead.standby
-        #expect(playhead.rerun() == Playhead.Fire(cue: sheet.cues[0].id, presentation: .run, automatic: false))
+        #expect(playhead.rerun(in: sheet) == Playhead.Fire(cue: sheet.cues[0].id, presentation: .run, automatic: false))
         #expect(playhead.standby == standby)
     }
 

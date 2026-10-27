@@ -1,8 +1,9 @@
 import Foundation
 
-/// An anagram cue, worked out once when it loads: both phrases laid out in
-/// lines, which character of the first lands where in the second, and when
-/// each one moves.
+/// One move of an anagram, from one step to the next, worked out once when
+/// the cue loads: both laid out in lines, which character of the first lands
+/// where in the second, and when each one moves. A plain anagram is one move,
+/// from its phrase to its answer; `AnagramCuePlan` strings moves together.
 ///
 /// Characters are matched in reading order, whatever their case: the first
 /// A of the first phrase goes to the first A of the second, and so on, so no
@@ -62,8 +63,14 @@ public struct AnagramPlan: Equatable, Sendable {
     ///     lands and nothing lands on a letter still waiting to go.
     ///   - random: Gives each up to two frames of extra delay.
     public init(from: String, to: String, wave: Int, random: inout some UnitRandom) {
-        fromLines = Self.lines(from)
-        toLines = Self.lines(to)
+        self.init(fromLines: Self.lines(from), toLines: Self.lines(to), wave: wave, random: &random)
+    }
+
+    /// From one set of lines to another, laid out already, as a step of
+    /// working is with its unused letters on a line of their own.
+    public init(fromLines: [String], toLines: [String], wave: Int, random: inout some UnitRandom) {
+        self.fromLines = fromLines
+        self.toLines = toLines
         let source = Self.characters(fromLines), target = Self.characters(toLines)
         let sourceWords = Self.words(fromLines), targetWords = Self.words(toLines)
         movesWholeWords = sourceWords.count > 1 && sourceWords.map(\.key).sorted() == targetWords.map(\.key).sorted()
@@ -111,6 +118,17 @@ public struct AnagramPlan: Equatable, Sendable {
         }
         self.pieces = pieces
         duration = pieces.isEmpty ? 0 : max(landed, fadeIn + Self.fadeFrames)
+    }
+
+    /// Lines standing still: every character in its place, going nowhere. An
+    /// anagram with no answer yet shows its phrase this way.
+    public static func still(_ lines: [String]) -> AnagramPlan {
+        var none = NoDice()
+        return AnagramPlan(fromLines: lines, toLines: lines, wave: 0, random: &none)
+    }
+
+    private struct NoDice: UnitRandom {
+        mutating func next() -> Double { 0 }
     }
 
     /// How far a piece has got on frame `f`, from 0 to 1: along its journey,

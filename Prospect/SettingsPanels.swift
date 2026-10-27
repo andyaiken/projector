@@ -85,7 +85,7 @@ final class SettingRow: NSView {
         switch v {
         case .number(let n): slider?.integerValue = n
         case .flag(let on): toggle?.state = on ? .on : .off
-        case .order, .reveal, .letters, .bars, .style: popup?.selectItem(at: key.choiceIndex(of: v) ?? 0)
+        case .order, .reveal, .letters, .bars, .style, .advance: popup?.selectItem(at: key.choiceIndex(of: v) ?? 0)
         case .font(let family): select(family: family)
         }
         value.stringValue = key.format(v)
@@ -254,6 +254,10 @@ final class ShowDefaultsPanel: PanelView, NSTextFieldDelegate {
             if row.key == .fade { row.isEnabled = settings.transition == .fade }
             if row.key == .bars { row.isEnabled = settings.histogram }
             if row.key == .hold { row.annotate(SettingKey.holdLength(holdTicks: settings.holdTicks, clockMs: settings.clockMs)) }
+            if row.key == .pause {
+                row.annotate(SettingKey.holdLength(holdTicks: settings.pauseTicks, clockMs: settings.clockMs))
+                row.isEnabled = settings.advance != .eachStep
+            }
         }
     }
 
@@ -391,6 +395,12 @@ final class CueSettingsPanel: PanelView {
             if row.key == .fade { row.isEnabled = cue.transitionIn(defaults: defaults).style == .fade }
             if row.key == .bars { row.isEnabled = SettingKey.histogram.effective(for: cue, defaults: defaults).value == .flag(true) }
             if row.key == .hold { row.annotate(SettingKey.holdLength(holdTicks: timing.holdTicks, clockMs: timing.clockMs)) }
+            // Every step on GO leaves nothing to pause between.
+            if row.key == .pause, case .anagram(let c) = cue.content {
+                let s = defaults.resolved(c.overrides)
+                row.annotate(SettingKey.holdLength(holdTicks: s.pauseTicks, clockMs: s.clockMs))
+                row.isEnabled = s.advance != .eachStep
+            }
         }
     }
 

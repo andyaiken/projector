@@ -27,8 +27,8 @@ On first launch Prospect opens a new, empty show. To try it:
 
 | Key | In show mode |
 | --- | --- |
-| Space | Fire the standby cue. Nothing else fires a cue |
-| → ↓ PageDown, ← ↑ PageUp | Stand by the next or previous cue |
+| Space | Fire the standby cue, or carry on an anagram cue waiting for GO. Nothing else fires a cue |
+| → ↓ PageDown, ← ↑ PageUp | Stand by the next or previous cue, or skip a waiting anagram cue's GOs |
 | 0–9 and `.`, then Return | Stand by a cue by number |
 | R | Run the live cue again |
 | B | Blackout |
@@ -55,7 +55,7 @@ The split follows the spec's architecture, in three layers:
 - **ProspectCore** is plain logic: the cue and show model, the cipher and decryption reveal, anagram matching, tile schedules, numbering, the playhead, the tick clock, the `.prospect` package format and the cue sheet rows. Its tests compare its output exactly against recorded outputs.
 - **ProspectStage** paints cues into Core Animation layer trees and runs the show. Its pieces:
   - `SurfaceLayer`: a surface to paint into.
-  - One renderer per cue kind: `TitleRenderer`, `AnagramRenderer`, `ImageRenderer`, `VideoRenderer` and `BlankRenderer`, all conforming to `CueRenderer`.
+  - One renderer per cue kind: `TitleRenderer`, `AnagramRenderer`, `ImageRenderer`, `VideoRenderer` and `BlankRenderer`, all conforming to `CueRenderer`. `AnagramRenderer` also conforms to `WaitsForGO`, because an anagram cue can stop partway for GO.
   - `StageRunner`: drives the renderers on every tick.
   - `ShowController`: the keys, the playhead, modes and editing.
   - `ProjectorState`: where the projector window goes.
@@ -75,7 +75,7 @@ The split follows the spec's architecture, in three layers:
 
 The projector window and the console's live preview are both surfaces. A renderer paints every surface from one shared plan, so any randomness is rolled once per frame and the two surfaces never disagree. Only `VideoRenderer` treats the two differently: the preview shows a poster and a position readout instead of a second player.
 
-`ShowController` owns the `Playhead`. Its model is standby and live: only GO puts a cue on stage, and a cue marked to follow fires when the one before it settles.
+`ShowController` owns the `Playhead`. Its model is standby and live: only GO puts a cue on stage, and a cue marked to follow fires when the one before it settles. An anagram cue set to advance on GO waits partway; while it does, its next GO point stands by ahead of the next cue, and GO carries it on rather than firing anything new.
 
 In edit mode, every change goes through `ShowController.edit`. That makes it one undo step, and slider drags are merged into a single step. If the cue on stage is affected, it is redrawn in its finished state.
 
